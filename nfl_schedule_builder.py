@@ -1,6 +1,5 @@
-# NFL Schedule Builder - GUI Version with Searchable Team Dropdowns
-# Uses Tkinter for the interface and JSON for persistent file storage
-# Features a custom autocomplete combobox for team selection
+# NFL Schedule Builder - GUI Version with Searchable Dropdowns + Week Filter
+# Fixed: week number now sorts numerically (int) not alphabetically (string)
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -12,7 +11,7 @@ from datetime import datetime
 # Constants
 # ─────────────────────────────────────────────
 
-DEFAULT_SAVE_FILE = "nfl_schedule.json"  # Default storage file
+DEFAULT_SAVE_FILE = "nfl_schedule.json"
 
 NFL_TEAMS = sorted([
     "Arizona Cardinals", "Atlanta Falcons", "Baltimore Ravens", "Buffalo Bills",
@@ -26,17 +25,17 @@ NFL_TEAMS = sorted([
 ])
 
 # Color theme
-BG_COLOR    = "#1a1a2e"
-PANEL_COLOR = "#16213e"
+BG_COLOR     = "#1a1a2e"
+PANEL_COLOR  = "#16213e"
 ACCENT_COLOR = "#0f3460"
-HIGHLIGHT   = "#e94560"
-TEXT_COLOR  = "#eaeaea"
+HIGHLIGHT    = "#e94560"
+TEXT_COLOR   = "#eaeaea"
 BUTTON_COLOR = "#0f3460"
-BUTTON_TEXT = "#ffffff"
-ENTRY_BG    = "#0d0d1a"
-TREE_BG     = "#0d0d1a"
-TREE_FG     = "#eaeaea"
-TREE_SELECT = "#e94560"
+BUTTON_TEXT  = "#ffffff"
+ENTRY_BG     = "#0d0d1a"
+TREE_BG      = "#0d0d1a"
+TREE_FG      = "#eaeaea"
+TREE_SELECT  = "#e94560"
 
 # ─────────────────────────────────────────────
 # Searchable Combobox Widget
@@ -45,27 +44,30 @@ TREE_SELECT = "#e94560"
 class SearchableCombobox(tk.Frame):
     """
     A custom searchable combobox widget.
-    Shows a dropdown list that filters in real time as the user types.
+    Filters the dropdown list in real time as the user types.
+    Closes the dropdown when clicking anywhere outside of it.
     """
+
+    # Class-level registry so we can close all others when one opens
+    _all_instances = []
 
     def __init__(self, parent, values=None, placeholder="Type to search...",
                  bg=ENTRY_BG, fg=TEXT_COLOR, font=("Helvetica", 11), **kwargs):
-        """
-        Initialize the searchable combobox.
-        :param parent: Parent widget
-        :param values: List of string options
-        :param placeholder: Placeholder text shown when empty
-        """
         super().__init__(parent, bg=bg, **kwargs)
 
-        self.all_values = values or []        # Full list of options
-        self.placeholder = placeholder
-        self._dropdown_open = False           # Track if dropdown is visible
-        self._ignore_focus_out = False        # Prevent closing on internal clicks
+        self.all_values        = values or []
+        self.placeholder       = placeholder
+        self._dropdown_open    = False
+        self._ignore_focus_out = False
+        self._dropdown         = None
+        self._listbox          = None
 
-        # ── Entry field ──
+        # Register this instance
+        SearchableCombobox._all_instances.append(self)
+
+        # ── Entry Field ──
         self.var = tk.StringVar()
-        self.var.trace("w", self._on_type)   # Trigger filter on every keystroke
+        self.var.trace("w", self._on_type)
 
         self.entry = tk.Entry(
             self,
@@ -79,105 +81,154 @@ class SearchableCombobox(tk.Frame):
         )
         self.entry.pack(fill="x", ipady=4)
 
-        # Show placeholder text initially
         self._show_placeholder()
 
-        # ── Bind events ──
+        # ── Bind Entry Events ──
         self.entry.bind("<FocusIn>",  self._on_focus_in)
         self.entry.bind("<FocusOut>", self._on_focus_out)
-        self.entry.bind("<Down>",     self._focus_listbox)   # Arrow down moves to list
+        self.entry.bind("<Down>",     self._focus_listbox)
         self.entry.bind("<Return>",   self._on_entry_return)
         self.entry.bind("<Escape>",   lambda e: self._close_dropdown())
 
-        # ── Dropdown toplevel window (hidden initially) ──
-        self._dropdown = None
-        self._listbox  = None
+        # Bind global click after widget is ready
+        self.after(100, self._bind_global_click)
 
-    # ── Placeholder Helpers ──
+    def _bind_global_click(self):
+        """Bind a global click listener to detect outside clicks."""
+        self.entry.bind_all("<ButtonPress-1>", self._on_global_click, add="+")
+
+    def _get_root(self):
+        """Walk up the widget tree to find the root Tk window."""
+        widget = self
+        while widget.master:
+            widget = widget.master
+        return widget
+
+    def _on_global_click(self, event):
+        """
+        Close this dropdown if the click was outside
+        the entry widget and the dropdown window.
+        """
+        if not self._dropdown_open:
+            return
+
+        clicked_widget = event.widget
+
+        # Ignore clicks on our own entry
+        if clicked_widget == self.entry:
+            return
+
+        # Ignore clicks on our own listbox
+        if self._listbox and clicked_widget == self._listbox:
+            return
+
+        # Check if click landed inside the dropdown bounding box
+        if self._dropdown:
+            try:
+                x = self._dropdown.winfo_rootx()
+                y = self._dropdown.winfo_rooty()
+                w = self._dropdown.winfo_width()
+                h = self._dropdown.winfo_height()
+
+                if x <= event.x_root <= x + w and y <= event.y_root <= y + h:
+                    return
+            except tk.TclError:
+                pass
+
+        # Click was outside — close dropdown
+        self._close_dropdown()
+        if not self.var.get().strip() or self.var.get() == self.placeholder:
+            self._show_placeholder()
+
+    # ── Placeholder ──
 
     def _show_placeholder(self):
-        """Insert placeholder text in grey."""
+        """Show greyed placeholder text."""
+        self.var.set(self.placeholder)
         self.entry.config(fg="#888888")
-        self.entry.insert(0, self.placeholder)
         self._has_placeholder = True
 
     def _clear_placeholder(self):
-        """Remove placeholder text when user focuses the field."""
+        """Remove placeholder when user focuses the field."""
         if getattr(self, "_has_placeholder", False):
+            self.var.set("")
             self.entry.config(fg=TEXT_COLOR)
-            self.entry.delete(0, tk.END)
             self._has_placeholder = False
 
     def _on_focus_in(self, event):
-        """Clear placeholder on focus."""
+        """Clear placeholder and open dropdown on focus."""
         self._clear_placeholder()
+        self._close_all_others()
         self._open_dropdown(self.all_values)
 
     def _on_focus_out(self, event):
-        """Close dropdown when focus leaves, unless clicking inside the list."""
+        """Fallback close for keyboard-based focus changes."""
         if self._ignore_focus_out:
             return
-        # Small delay so listbox click registers before closing
-        self.after(150, self._check_close)
+        self.after(200, self._check_close_on_focus_out)
 
-    def _check_close(self):
-        """Close dropdown if focus is no longer in the widget."""
-        if not self._ignore_focus_out:
-            self._close_dropdown()
-            # Restore placeholder if empty
-            if not self.var.get().strip():
-                self._show_placeholder()
+    def _check_close_on_focus_out(self):
+        """Close dropdown if focus moved away via keyboard."""
+        if self._ignore_focus_out:
+            return
+        try:
+            focused = self._get_root().focus_get()
+        except Exception:
+            focused = None
+
+        if focused == self._listbox or focused == self.entry:
+            return
+
+        self._close_dropdown()
+        if not self.var.get().strip() or self.var.get() == self.placeholder:
+            self._show_placeholder()
+
+    def _close_all_others(self):
+        """Close all other open SearchableCombobox dropdowns."""
+        for instance in SearchableCombobox._all_instances:
+            if instance is not self and instance._dropdown_open:
+                instance._close_dropdown()
 
     # ── Typing Filter ──
 
     def _on_type(self, *args):
-        """Filter dropdown list as user types."""
+        """Filter the dropdown list as the user types."""
         if getattr(self, "_has_placeholder", False):
             return
-
         typed = self.var.get().strip().lower()
-
-        if typed == "":
-            # Show all options if field is empty
-            filtered = self.all_values
-        else:
-            # Filter: show teams whose name contains the typed string
-            filtered = [t for t in self.all_values if typed in t.lower()]
-
+        if typed == self.placeholder.lower():
+            return
+        filtered = self.all_values if not typed else [
+            t for t in self.all_values if typed in t.lower()
+        ]
         self._open_dropdown(filtered)
 
-    # ── Dropdown Open/Close ──
+    # ── Dropdown ──
 
     def _open_dropdown(self, options):
-        """
-        Open (or refresh) the dropdown listbox below the entry.
-        :param options: Filtered list of strings to display
-        """
-        # Destroy old dropdown if it exists
+        """Open or refresh the floating dropdown listbox."""
         if self._dropdown:
             self._dropdown.destroy()
             self._dropdown = None
 
         if not options:
-            return  # Nothing to show
+            self._dropdown_open = False
+            return
 
-        # Get position of the entry widget on screen
         x = self.entry.winfo_rootx()
         y = self.entry.winfo_rooty() + self.entry.winfo_height()
         w = self.entry.winfo_width()
+        h = min(len(options), 8) * 28
 
-        # Create a floating Toplevel window for the dropdown
         self._dropdown = tk.Toplevel(self)
-        self._dropdown.wm_overrideredirect(True)  # No window border/title bar
-        self._dropdown.wm_geometry(f"{w}x{min(len(options), 8) * 28}+{x}+{y}")
+        self._dropdown.wm_overrideredirect(True)
+        self._dropdown.wm_geometry(f"{w}x{h}+{x}+{y}")
         self._dropdown.configure(bg=ENTRY_BG)
-        self._dropdown.attributes("-topmost", True)  # Always on top
+        self._dropdown.attributes("-topmost", True)
 
-        # Scrollbar for long lists
         scrollbar = tk.Scrollbar(self._dropdown, orient="vertical", bg=ACCENT_COLOR)
         scrollbar.pack(side="right", fill="y")
 
-        # Listbox of matching options
         self._listbox = tk.Listbox(
             self._dropdown,
             yscrollcommand=scrollbar.set,
@@ -195,27 +246,28 @@ class SearchableCombobox(tk.Frame):
         self._listbox.pack(side="left", fill="both", expand=True)
         scrollbar.config(command=self._listbox.yview)
 
-        # Insert filtered options
         for item in options:
             self._listbox.insert(tk.END, item)
 
-        # Bind listbox selection events
         self._listbox.bind("<ButtonPress-1>", self._on_listbox_click)
         self._listbox.bind("<Return>",        self._on_listbox_return)
         self._listbox.bind("<Up>",            self._on_listbox_up)
         self._listbox.bind("<Escape>",        lambda e: self._close_dropdown())
 
-        # Mark flag so focus-out doesn't immediately close
         self._dropdown_open = True
 
     def _close_dropdown(self):
-        """Destroy the dropdown window."""
+        """Destroy the dropdown and reset state."""
         if self._dropdown:
-            self._dropdown.destroy()
+            try:
+                self._dropdown.destroy()
+            except tk.TclError:
+                pass
             self._dropdown = None
+        self._listbox       = None
         self._dropdown_open = False
 
-    # ── Selection Events ──
+    # ── Selection ──
 
     def _on_listbox_click(self, event):
         """Handle mouse click on a listbox item."""
@@ -223,15 +275,15 @@ class SearchableCombobox(tk.Frame):
         self.after(10, self._select_current)
 
     def _on_listbox_return(self, event):
-        """Handle Enter key press on a listbox item."""
+        """Handle Enter key on a listbox item."""
         self._select_current()
 
     def _select_current(self):
-        """Set the entry value to the selected listbox item."""
+        """Set the entry to the selected listbox item."""
         if self._listbox:
-            selection = self._listbox.curselection()
-            if selection:
-                value = self._listbox.get(selection[0])
+            sel = self._listbox.curselection()
+            if sel:
+                value = self._listbox.get(sel[0])
                 self._has_placeholder = False
                 self.var.set(value)
                 self.entry.config(fg=TEXT_COLOR)
@@ -240,49 +292,57 @@ class SearchableCombobox(tk.Frame):
         self.entry.focus_set()
 
     def _on_entry_return(self, event):
-        """If only one match, auto-select it on Enter."""
+        """Auto-select if only one match remains on Enter."""
         typed = self.var.get().strip().lower()
         matches = [t for t in self.all_values if typed in t.lower()]
         if len(matches) == 1:
             self.var.set(matches[0])
+            self.entry.config(fg=TEXT_COLOR)
+            self._has_placeholder = False
             self._close_dropdown()
 
     def _focus_listbox(self, event):
-        """Move focus from entry to listbox on Down arrow key."""
+        """Move focus into the listbox on Down arrow."""
         if self._listbox:
             self._listbox.focus_set()
             self._listbox.selection_set(0)
 
     def _on_listbox_up(self, event):
-        """Move focus back to entry if at top of listbox."""
-        if self._listbox:
-            if self._listbox.curselection() and self._listbox.curselection()[0] == 0:
+        """Return focus to entry when pressing Up at top of list."""
+        if self._listbox and self._listbox.curselection():
+            if self._listbox.curselection()[0] == 0:
                 self.entry.focus_set()
 
     # ── Public Methods ──
 
     def get(self):
-        """Return the current value (empty string if placeholder shown)."""
+        """Return current value, or empty string if placeholder shown."""
         if getattr(self, "_has_placeholder", False):
             return ""
-        return self.var.get().strip()
+        val = self.var.get().strip()
+        if val == self.placeholder:
+            return ""
+        return val
 
     def set(self, value):
-        """Programmatically set the entry value."""
+        """Programmatically set the combobox value."""
         self._has_placeholder = False
         self.var.set(value)
         self.entry.config(fg=TEXT_COLOR)
         self._close_dropdown()
 
     def clear(self):
-        """Clear the entry and restore placeholder."""
-        self.var.set("")
-        self._show_placeholder()
+        """Clear entry and restore placeholder."""
         self._close_dropdown()
+        self._show_placeholder()
+
+    def update_values(self, new_values):
+        """Replace the full list of selectable options."""
+        self.all_values = new_values
 
 
 # ─────────────────────────────────────────────
-# File I/O Functions
+# File I/O
 # ─────────────────────────────────────────────
 
 def load_games(filepath):
@@ -299,7 +359,7 @@ def load_games(filepath):
 
 
 def save_games(filepath, games):
-    """Save games list to a JSON file with metadata."""
+    """Save games list to JSON with metadata header."""
     data = {
         "meta": {
             "app": "NFL Schedule Builder",
@@ -312,20 +372,46 @@ def save_games(filepath, games):
 
 
 # ─────────────────────────────────────────────
-# Main Application Class
+# Sort Key Helper
+# ─────────────────────────────────────────────
+
+def _sort_key(game, col_key):
+    """
+    Return a sort key for a game dict by column.
+    Week and year are cast to int so they sort numerically.
+    All other columns sort as lowercase strings.
+    """
+    val = game.get(col_key, "")
+
+    # ── Numeric columns: sort as int ──
+    if col_key in ("week", "year"):
+        try:
+            return (0, int(val))         # (0, int) sorts before (1, str) fallback
+        except (ValueError, TypeError):
+            return (1, str(val).lower()) # Fallback for non-numeric values
+
+    # ── All other columns: sort as lowercase string ──
+    return (0, str(val).lower())
+
+
+# ─────────────────────────────────────────────
+# Main Application
 # ─────────────────────────────────────────────
 
 class NFLSchedulerApp:
     def __init__(self, root):
-        """Initialize the main application window."""
+        """Initialize the main application."""
         self.root = root
         self.root.title("🏈 NFL Schedule Builder")
-        self.root.geometry("1200x750")
+        self.root.geometry("1280x780")
         self.root.configure(bg=BG_COLOR)
         self.root.resizable(True, True)
 
+        # Track sort state per column: True = ascending, False = descending
+        self._sort_ascending = {}
+
         self.save_file = DEFAULT_SAVE_FILE
-        self.games = load_games(self.save_file)
+        self.games     = load_games(self.save_file)
 
         self._build_menu()
         self._build_header()
@@ -333,7 +419,7 @@ class NFLSchedulerApp:
         self._build_status_bar()
 
         self.refresh_schedule_view()
-        self.refresh_team_filter()
+        self.refresh_filter_options()
         self.update_status(f"Loaded {len(self.games)} game(s) from '{self.save_file}'")
 
     # ─────────────────────────────────────────
@@ -345,14 +431,14 @@ class NFLSchedulerApp:
         menubar = tk.Menu(self.root, bg=ACCENT_COLOR, fg=TEXT_COLOR, tearoff=0)
 
         file_menu = tk.Menu(menubar, tearoff=0, bg=PANEL_COLOR, fg=TEXT_COLOR)
-        file_menu.add_command(label="New Schedule",     command=self.new_schedule)
-        file_menu.add_command(label="Open Schedule...", command=self.open_schedule)
-        file_menu.add_command(label="Save",             command=self.save_now)
-        file_menu.add_command(label="Save As...",       command=self.save_as)
+        file_menu.add_command(label="New Schedule",      command=self.new_schedule)
+        file_menu.add_command(label="Open Schedule...",  command=self.open_schedule)
+        file_menu.add_command(label="Save",              command=self.save_now)
+        file_menu.add_command(label="Save As...",        command=self.save_as)
         file_menu.add_separator()
-        file_menu.add_command(label="Export to CSV",    command=self.export_csv)
+        file_menu.add_command(label="Export to CSV",     command=self.export_csv)
         file_menu.add_separator()
-        file_menu.add_command(label="Exit",             command=self.root.quit)
+        file_menu.add_command(label="Exit",              command=self.root.quit)
         menubar.add_cascade(label="File", menu=file_menu)
 
         help_menu = tk.Menu(menubar, tearoff=0, bg=PANEL_COLOR, fg=TEXT_COLOR)
@@ -396,13 +482,11 @@ class NFLSchedulerApp:
         main_frame = tk.Frame(self.root, bg=BG_COLOR)
         main_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Left panel: form
         left = tk.Frame(main_frame, bg=PANEL_COLOR, width=320, relief="flat", bd=2)
         left.pack(side="left", fill="y", padx=(0, 10))
         left.pack_propagate(False)
         self._build_form(left)
 
-        # Right panel: schedule view
         right = tk.Frame(main_frame, bg=PANEL_COLOR, relief="flat", bd=2)
         right.pack(side="left", fill="both", expand=True)
         self._build_schedule_view(right)
@@ -412,7 +496,7 @@ class NFLSchedulerApp:
     # ─────────────────────────────────────────
 
     def _build_form(self, parent):
-        """Build the game entry form with searchable team dropdowns."""
+        """Build the game entry form."""
 
         tk.Label(
             parent,
@@ -428,7 +512,6 @@ class NFLSchedulerApp:
         form.pack(fill="x", padx=15)
 
         def label(text):
-            """Helper: styled label."""
             tk.Label(
                 form,
                 text=text,
@@ -439,7 +522,6 @@ class NFLSchedulerApp:
             ).pack(fill="x", pady=(8, 1))
 
         def entry(default=""):
-            """Helper: styled text entry."""
             e = tk.Entry(
                 form,
                 font=("Helvetica", 11),
@@ -454,20 +536,16 @@ class NFLSchedulerApp:
                 e.insert(0, default)
             return e
 
-        # ── Form Fields ──
-
         label("Week #")
         self.week_entry = entry()
 
         label("Date (MM/DD/YYYY or TBD)")
         self.date_entry = entry("TBD")
 
-        # Away team: searchable combobox
         label("Away Team")
         self.away_combo = SearchableCombobox(form, values=NFL_TEAMS)
         self.away_combo.pack(fill="x")
 
-        # Home team: searchable combobox
         label("Home Team")
         self.home_combo = SearchableCombobox(form, values=NFL_TEAMS)
         self.home_combo.pack(fill="x")
@@ -481,7 +559,6 @@ class NFLSchedulerApp:
         label("Season Year")
         self.year_entry = entry(str(datetime.now().year))
 
-        # ── Buttons ──
         tk.Frame(parent, bg=HIGHLIGHT, height=2).pack(fill="x", padx=15, pady=15)
 
         btn_frame = tk.Frame(parent, bg=PANEL_COLOR)
@@ -510,84 +587,103 @@ class NFLSchedulerApp:
         styled_btn("🗑️  Delete Game", self.delete_game, "#8b0000").pack(fill="x", pady=3)
 
     # ─────────────────────────────────────────
-    # Right Panel: Schedule Treeview
+    # Right Panel: Schedule View
     # ─────────────────────────────────────────
 
     def _build_schedule_view(self, parent):
-        """Build the schedule treeview."""
+        """Build the schedule treeview with team and week filters."""
 
-        top_bar = tk.Frame(parent, bg=PANEL_COLOR)
-        top_bar.pack(fill="x", padx=10, pady=(10, 5))
+        # ── Filter Bar ──
+        filter_frame = tk.Frame(parent, bg=PANEL_COLOR)
+        filter_frame.pack(fill="x", padx=10, pady=(10, 2))
 
         tk.Label(
-            top_bar,
+            filter_frame,
             text="Schedule View",
             font=("Helvetica", 14, "bold"),
             bg=PANEL_COLOR,
             fg=HIGHLIGHT
-        ).pack(side="left")
+        ).grid(row=0, column=0, sticky="w", padx=(0, 15))
 
         tk.Label(
-            top_bar,
-            text="Filter by Team:",
-            font=("Helvetica", 10),
+            filter_frame,
+            text="Team:",
+            font=("Helvetica", 10, "bold"),
             bg=PANEL_COLOR,
             fg=TEXT_COLOR
-        ).pack(side="left", padx=(20, 5))
+        ).grid(row=0, column=1, sticky="w", padx=(0, 4))
 
-        # Team filter: also a searchable combobox
-        self.filter_combo = SearchableCombobox(
-            top_bar,
+        self.filter_team_combo = SearchableCombobox(
+            filter_frame,
             values=["All Teams"] + NFL_TEAMS,
             placeholder="All Teams",
             font=("Helvetica", 10)
         )
-        self.filter_combo.pack(side="left")
-        # Bind Enter key on filter to refresh
-        self.filter_combo.entry.bind("<Return>", lambda e: self.refresh_schedule_view())
-        self.filter_combo.entry.bind("<FocusOut>", lambda e: self.after(200, self.refresh_schedule_view))
+        self.filter_team_combo.grid(row=0, column=2, sticky="w", padx=(0, 4))
+        self.filter_team_combo.entry.bind(
+            "<Return>", lambda e: self.refresh_schedule_view()
+        )
 
-        # Apply filter button
+        tk.Label(
+            filter_frame,
+            text="Week:",
+            font=("Helvetica", 10, "bold"),
+            bg=PANEL_COLOR,
+            fg=TEXT_COLOR
+        ).grid(row=0, column=3, sticky="w", padx=(10, 4))
+
+        self.filter_week_combo = SearchableCombobox(
+            filter_frame,
+            values=["All Weeks"] + [str(w) for w in range(1, 24)],
+            placeholder="All Weeks",
+            font=("Helvetica", 10)
+        )
+        self.filter_week_combo.grid(row=0, column=4, sticky="w", padx=(0, 4))
+        self.filter_week_combo.entry.bind(
+            "<Return>", lambda e: self.refresh_schedule_view()
+        )
+
         tk.Button(
-            top_bar,
+            filter_frame,
             text="Apply",
             command=self.refresh_schedule_view,
             font=("Helvetica", 9, "bold"),
             bg=HIGHLIGHT,
             fg=TEXT_COLOR,
             relief="flat",
-            padx=8,
-            pady=3,
+            padx=8, pady=3,
             cursor="hand2"
-        ).pack(side="left", padx=(5, 0))
+        ).grid(row=0, column=5, padx=(6, 2))
 
-        # Clear filter button
         tk.Button(
-            top_bar,
+            filter_frame,
             text="Clear",
-            command=self._clear_filter,
+            command=self._clear_filters,
             font=("Helvetica", 9),
             bg=ACCENT_COLOR,
             fg=TEXT_COLOR,
             relief="flat",
-            padx=8,
-            pady=3,
+            padx=8, pady=3,
             cursor="hand2"
-        ).pack(side="left", padx=(3, 0))
+        ).grid(row=0, column=6, padx=(2, 10))
 
-        # Search bar
+        # ── Search Bar ──
+        search_frame = tk.Frame(parent, bg=PANEL_COLOR)
+        search_frame.pack(fill="x", padx=10, pady=(2, 6))
+
         tk.Label(
-            top_bar,
-            text="Search:",
-            font=("Helvetica", 10),
+            search_frame,
+            text="🔍 Search:",
+            font=("Helvetica", 10, "bold"),
             bg=PANEL_COLOR,
             fg=TEXT_COLOR
-        ).pack(side="left", padx=(15, 5))
+        ).pack(side="left", padx=(0, 6))
 
         self.search_var = tk.StringVar()
         self.search_var.trace("w", lambda *a: self.refresh_schedule_view())
+
         tk.Entry(
-            top_bar,
+            search_frame,
             textvariable=self.search_var,
             font=("Helvetica", 10),
             bg=ENTRY_BG,
@@ -595,26 +691,31 @@ class NFLSchedulerApp:
             insertbackground=TEXT_COLOR,
             relief="flat",
             bd=4,
-            width=18
+            width=30
         ).pack(side="left")
 
-        # Treeview styling
+        self.filter_status_label = tk.Label(
+            search_frame,
+            text="",
+            font=("Helvetica", 9, "italic"),
+            bg=PANEL_COLOR,
+            fg=HIGHLIGHT
+        )
+        self.filter_status_label.pack(side="left", padx=(15, 0))
+
+        # ── Treeview Styling ──
         style = ttk.Style()
         style.theme_use("clam")
         style.configure(
             "NFL.Treeview",
-            background=TREE_BG,
-            foreground=TREE_FG,
-            fieldbackground=TREE_BG,
-            rowheight=28,
+            background=TREE_BG, foreground=TREE_FG,
+            fieldbackground=TREE_BG, rowheight=28,
             font=("Helvetica", 10)
         )
         style.configure(
             "NFL.Treeview.Heading",
-            background=ACCENT_COLOR,
-            foreground=TEXT_COLOR,
-            font=("Helvetica", 10, "bold"),
-            relief="flat"
+            background=ACCENT_COLOR, foreground=TEXT_COLOR,
+            font=("Helvetica", 10, "bold"), relief="flat"
         )
         style.map(
             "NFL.Treeview",
@@ -622,9 +723,11 @@ class NFLSchedulerApp:
             foreground=[("selected", TEXT_COLOR)]
         )
 
+        # ── Treeview ──
         columns = ("week", "date", "away", "home", "time", "location", "year")
+
         tree_frame = tk.Frame(parent, bg=PANEL_COLOR)
-        tree_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        tree_frame.pack(fill="both", expand=True, padx=10, pady=(0, 5))
 
         self.tree = ttk.Treeview(
             tree_frame,
@@ -644,7 +747,10 @@ class NFLSchedulerApp:
             "year":     ("Season",    65)
         }
         for col, (heading, width) in col_config.items():
-            self.tree.heading(col, text=heading, command=lambda c=col: self.sort_tree(c))
+            self.tree.heading(
+                col, text=heading,
+                command=lambda c=col: self.sort_tree(c)
+            )
             self.tree.column(col, width=width, anchor="center")
 
         vsb = ttk.Scrollbar(tree_frame, orient="vertical",   command=self.tree.yview)
@@ -694,31 +800,33 @@ class NFLSchedulerApp:
         game = self._get_form_data()
         if game is None:
             return
-
         for g in self.games:
-            if (g["week"] == game["week"] and
+            if (g["week"]      == game["week"] and
                 g["home_team"] == game["home_team"] and
                 g["away_team"] == game["away_team"] and
-                g["year"] == game["year"]):
+                g["year"]      == game["year"]):
                 messagebox.showwarning("Duplicate Game", "This game already exists.")
                 return
-
         self.games.append(game)
-        self._save_and_refresh(f"Added: Week {game['week']} | {game['away_team']} @ {game['home_team']}")
+        self._save_and_refresh(
+            f"Added: Week {game['week']} | {game['away_team']} @ {game['home_team']}"
+        )
         self.clear_form()
 
     def update_game(self):
-        """Update the selected game with current form data."""
+        """Update the selected game."""
         selected = self.tree.selection()
         if not selected:
-            messagebox.showinfo("No Selection", "Click a game in the schedule to select it first.")
+            messagebox.showinfo("No Selection", "Click a game to select it first.")
             return
         game = self._get_form_data()
         if game is None:
             return
         idx = int(self.tree.item(selected[0], "tags")[0])
         self.games[idx] = game
-        self._save_and_refresh(f"Updated: Week {game['week']} | {game['away_team']} @ {game['home_team']}")
+        self._save_and_refresh(
+            f"Updated: Week {game['week']} | {game['away_team']} @ {game['home_team']}"
+        )
 
     def delete_game(self):
         """Delete the selected game after confirmation."""
@@ -728,35 +836,35 @@ class NFLSchedulerApp:
             return
         idx = int(self.tree.item(selected[0], "tags")[0])
         g = self.games[idx]
-        if messagebox.askyesno("Confirm Delete",
-                               f"Delete Week {g['week']} | {g['away_team']} @ {g['home_team']}?"):
+        if messagebox.askyesno(
+            "Confirm Delete",
+            f"Delete Week {g['week']} | {g['away_team']} @ {g['home_team']}?"
+        ):
             self.games.pop(idx)
-            self._save_and_refresh(f"Deleted: Week {g['week']} | {g['away_team']} @ {g['home_team']}")
+            self._save_and_refresh(
+                f"Deleted: Week {g['week']} | {g['away_team']} @ {g['home_team']}"
+            )
             self.clear_form()
 
     def _get_form_data(self):
-        """Read, validate, and return form data as a dict, or None on failure."""
-
-        # Week validation
+        """Read and validate form fields. Returns game dict or None."""
         week_str = self.week_entry.get().strip()
         if not week_str.isdigit() or not (1 <= int(week_str) <= 23):
             messagebox.showerror("Invalid Week", "Week must be a number between 1 and 23.")
             return None
 
-        # Team validation
         away = self.away_combo.get()
         home = self.home_combo.get()
         if not away or not home:
             messagebox.showerror("Missing Teams", "Please select both home and away teams.")
             return None
         if away not in NFL_TEAMS or home not in NFL_TEAMS:
-            messagebox.showerror("Invalid Team", "Please select a valid NFL team from the list.")
+            messagebox.showerror("Invalid Team", "Please select a valid NFL team.")
             return None
         if away == home:
             messagebox.showerror("Same Team", "Home and Away teams cannot be the same.")
             return None
 
-        # Date validation
         date_str = self.date_entry.get().strip()
         if date_str.upper() != "TBD":
             try:
@@ -765,7 +873,6 @@ class NFLSchedulerApp:
                 messagebox.showerror("Invalid Date", "Date must be MM/DD/YYYY or 'TBD'.")
                 return None
 
-        # Year validation
         year_str = self.year_entry.get().strip()
         if not year_str.isdigit():
             messagebox.showerror("Invalid Year", "Please enter a valid 4-digit year.")
@@ -782,7 +889,7 @@ class NFLSchedulerApp:
         }
 
     def clear_form(self):
-        """Reset all form fields to defaults."""
+        """Reset all form fields."""
         self.week_entry.delete(0, tk.END)
         self.date_entry.delete(0, tk.END);     self.date_entry.insert(0, "TBD")
         self.away_combo.clear()
@@ -793,7 +900,7 @@ class NFLSchedulerApp:
         self.tree.selection_remove(self.tree.selection())
 
     def on_row_select(self, event):
-        """Populate form when a schedule row is clicked."""
+        """Populate the form when a row is clicked."""
         selected = self.tree.selection()
         if not selected:
             return
@@ -813,26 +920,57 @@ class NFLSchedulerApp:
     # ─────────────────────────────────────────
 
     def refresh_schedule_view(self):
-        """Refresh treeview applying team filter and search."""
+        """Refresh treeview applying all active filters, sorted by year then week."""
         for row in self.tree.get_children():
             self.tree.delete(row)
 
-        # Get filter value (ignore placeholder text)
-        team_filter = self.filter_combo.get()
+        team_filter = self.filter_team_combo.get()
         if not team_filter or team_filter == "All Teams":
             team_filter = None
 
+        week_filter = self.filter_week_combo.get()
+        if not week_filter or week_filter == "All Weeks":
+            week_filter = None
+        else:
+            week_filter = week_filter.replace("Week", "").strip()
+            if not week_filter.isdigit():
+                week_filter = None
+
         search_term = self.search_var.get().strip().lower()
 
-        sorted_games = sorted(self.games, key=lambda g: (g.get("year", 0), g["week"]))
+        active_filters = []
+        if team_filter:
+            active_filters.append(f"Team: {team_filter}")
+        if week_filter:
+            active_filters.append(f"Week: {week_filter}")
+        if search_term:
+            active_filters.append(f'Search: "{search_term}"')
+
+        self.filter_status_label.config(
+            text=("Filters: " + "  |  ".join(active_filters)) if active_filters else ""
+        )
+
+        # ── Sort games by year (int) then week (int) before displaying ──
+        # This is the key fix: both year and week are cast to int
+        indexed_games = list(enumerate(self.games))
+        indexed_games.sort(
+            key=lambda x: (
+                int(x[1].get("year", 0)),   # Sort year as int
+                int(x[1].get("week", 0))    # Sort week as int — fixes the bug
+            )
+        )
 
         visible = 0
-        for idx, g in enumerate(self.games):
-            # Team filter
+        for idx, g in indexed_games:
+
             if team_filter:
                 if g["home_team"] != team_filter and g["away_team"] != team_filter:
                     continue
-            # Search filter
+
+            if week_filter:
+                if str(g["week"]) != week_filter:
+                    continue
+
             if search_term:
                 if search_term not in " ".join(str(v).lower() for v in g.values()):
                     continue
@@ -842,7 +980,8 @@ class NFLSchedulerApp:
                 "", "end",
                 values=(
                     g["week"], g["date"], g["away_team"],
-                    g["home_team"], g["time"], g["location"], g.get("year", "N/A")
+                    g["home_team"], g["time"], g["location"],
+                    g.get("year", "N/A")
                 ),
                 tags=(str(idx), tag)
             )
@@ -852,49 +991,89 @@ class NFLSchedulerApp:
         self.tree.tag_configure("odd",  background="#111122")
         self.count_label.config(text=f"Showing {visible} of {len(self.games)} game(s)")
 
-    def _clear_filter(self):
-        """Reset the team filter and refresh."""
-        self.filter_combo.clear()
+    def _clear_filters(self):
+        """Clear all filters and refresh."""
+        self.filter_team_combo.clear()
+        self.filter_week_combo.clear()
+        self.search_var.set("")
         self.refresh_schedule_view()
+        self.update_status("Filters cleared.")
 
-    def refresh_team_filter(self):
-        """Rebuild the team filter dropdown options."""
+    def refresh_filter_options(self):
+        """Update filter dropdowns with values in current schedule."""
         teams = set()
         for g in self.games:
             teams.add(g["home_team"])
             teams.add(g["away_team"])
-        self.filter_combo.all_values = ["All Teams"] + sorted(teams)
+        self.filter_team_combo.update_values(["All Teams"] + sorted(teams))
+
+        # ── Sort weeks numerically ──
+        weeks = sorted(set(g["week"] for g in self.games), key=lambda w: int(w))
+        self.filter_week_combo.update_values(
+            ["All Weeks"] + [str(w) for w in weeks]
+        )
 
     def sort_tree(self, col):
-        """Sort treeview rows by clicked column header."""
+        """
+        Sort the treeview by the clicked column header.
+        Toggles ascending/descending on repeated clicks.
+        Week and year sort as integers; all other columns sort as strings.
+        """
+        # Map treeview column id to game dict key
         col_map = {
-            "week": "week", "date": "date", "away": "away_team",
-            "home": "home_team", "time": "time",
-            "location": "location", "year": "year"
+            "week":     "week",
+            "date":     "date",
+            "away":     "away_team",
+            "home":     "home_team",
+            "time":     "time",
+            "location": "location",
+            "year":     "year"
         }
         key = col_map.get(col, col)
-        self.games.sort(key=lambda g: str(g.get(key, "")))
+
+        # Toggle sort direction for this column
+        ascending = self._sort_ascending.get(col, True)
+        self._sort_ascending[col] = not ascending  # Flip for next click
+
+        # ── Sort using the _sort_key helper for numeric-aware sorting ──
+        self.games.sort(
+            key=lambda g: _sort_key(g, key),
+            reverse=not ascending
+        )
+
+        # Update column heading to show sort direction arrow
+        for c in col_map:
+            heading_text = {
+                "week": "Week", "date": "Date", "away": "Away Team",
+                "home": "Home Team", "time": "Time",
+                "location": "Location", "year": "Season"
+            }[c]
+            if c == col:
+                arrow = " ▲" if ascending else " ▼"
+                self.tree.heading(c, text=heading_text + arrow)
+            else:
+                self.tree.heading(c, text=heading_text)
+
         self.refresh_schedule_view()
-        self.update_status(f"Sorted by: {col}")
+        direction = "ascending" if ascending else "descending"
+        self.update_status(f"Sorted by {col} ({direction})")
 
     # ─────────────────────────────────────────
     # File Operations
     # ─────────────────────────────────────────
 
     def _save_and_refresh(self, msg=""):
-        """Save to file and refresh the view."""
+        """Save to file and refresh everything."""
         save_games(self.save_file, self.games)
         self.refresh_schedule_view()
-        self.refresh_team_filter()
+        self.refresh_filter_options()
         self.update_status(msg + f" | Saved to '{self.save_file}'")
 
     def save_now(self):
-        """Manual save."""
         save_games(self.save_file, self.games)
         self.update_status(f"Saved {len(self.games)} game(s) to '{self.save_file}'")
 
     def save_as(self):
-        """Save to a new file path."""
         path = filedialog.asksaveasfilename(
             defaultextension=".json",
             filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")],
@@ -907,32 +1086,32 @@ class NFLSchedulerApp:
             self.update_status(f"Saved to '{self.save_file}'")
 
     def open_schedule(self):
-        """Open a different JSON schedule file."""
         path = filedialog.askopenfilename(
             filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")],
             title="Open Schedule File"
         )
         if path:
             self.save_file = path
-            self.games = load_games(self.save_file)
+            self.games     = load_games(self.save_file)
             self.file_label.config(text=f"File: {self.save_file}")
             self.refresh_schedule_view()
-            self.refresh_team_filter()
-            self.update_status(f"Opened '{self.save_file}' | {len(self.games)} game(s) loaded")
+            self.refresh_filter_options()
+            self.update_status(
+                f"Opened '{self.save_file}' | {len(self.games)} game(s) loaded"
+            )
 
     def new_schedule(self):
-        """Start a fresh schedule."""
-        if messagebox.askyesno("New Schedule", "Start a new schedule? Unsaved changes will be lost."):
-            self.games = []
+        if messagebox.askyesno("New Schedule",
+                               "Start a new schedule? Unsaved changes will be lost."):
+            self.games     = []
             self.save_file = DEFAULT_SAVE_FILE
             self.file_label.config(text=f"File: {self.save_file}")
             self.refresh_schedule_view()
-            self.refresh_team_filter()
+            self.refresh_filter_options()
             self.clear_form()
             self.update_status("New schedule started.")
 
     def export_csv(self):
-        """Export schedule to CSV."""
         if not self.games:
             messagebox.showinfo("Empty", "No games to export.")
             return
@@ -945,10 +1124,15 @@ class NFLSchedulerApp:
             import csv
             with open(path, "w", newline="") as f:
                 writer = csv.DictWriter(
-                    f, fieldnames=["year","week","date","away_team","home_team","time","location"]
+                    f,
+                    fieldnames=["year","week","date","away_team","home_team","time","location"]
                 )
                 writer.writeheader()
-                for g in sorted(self.games, key=lambda x: (x.get("year", 0), x["week"])):
+                # Export sorted by year then week numerically
+                for g in sorted(
+                    self.games,
+                    key=lambda x: (int(x.get("year", 0)), int(x.get("week", 0)))
+                ):
                     writer.writerow(g)
             self.update_status(f"Exported {len(self.games)} game(s) to '{path}'")
 
@@ -957,21 +1141,22 @@ class NFLSchedulerApp:
     # ─────────────────────────────────────────
 
     def update_status(self, msg):
-        """Update bottom status bar text."""
         self.status_var.set(f"  {msg}")
 
     def show_about(self):
-        """Show about dialog."""
         messagebox.showinfo(
             "About NFL Schedule Builder",
             "🏈 NFL Schedule Builder\n\n"
             "Build your NFL season schedule with ease.\n\n"
-            "Searchable team dropdowns — just start typing!\n\n"
             "Features:\n"
             "  • Searchable team dropdowns\n"
+            "  • Filter by team AND week\n"
+            "  • Click outside to close dropdowns\n"
+            "  • Numeric week & year sorting\n"
+            "  • Toggle ascending/descending sort\n"
+            "  • Live search across all fields\n"
+            "  • Active filter indicator\n"
             "  • Add, edit, delete games\n"
-            "  • Filter & search schedule\n"
-            "  • Sort by any column\n"
             "  • Auto-save to JSON\n"
             "  • Export to CSV"
         )
