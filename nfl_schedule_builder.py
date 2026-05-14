@@ -25,18 +25,18 @@ NFL_TEAMS = sorted([
     "Seattle Seahawks", "Tampa Bay Buccaneers", "Tennessee Titans", "Washington Commanders"
 ])
 
-BG_COLOR     = "#ffffff"
-PANEL_COLOR  = "#125740"
-ACCENT_COLOR = "#125740"
-HIGHLIGHT    = "#003F2D"
-TEXT_COLOR   = "#eaeaea"
-BUTTON_COLOR = "#125740"
-BUTTON_TEXT  = "#ffffff"
-ENTRY_BG     = "#003F2D"
-TREE_BG      = "#000000"
-TREE_FG      = "#eaeaea"
-TREE_SELECT  = "#003F2D"
-
+BG_COLOR     = "#ffffff" # Main window background
+PANEL_COLOR  = "#125740" # Panel/frame background (Schedule View panel)
+ACCENT_COLOR = "#125740" # Column header background
+HIGHLIGHT    = "#003F2D" # Title text, selected row, filter indicator
+TEXT_COLOR   = "#eaeaea" # General text
+BUTTON_COLOR = "#125740" # Button background color
+BUTTON_TEXT  = "#ffffff" # Button text color
+ENTRY_BG     = "#003F2D" # Search bar entry background
+TREE_BG      = "#000000" # Treeview row background (even rows)
+TREE_FG      = "#eaeaea" # Treeview row text color
+TREE_SELECT  = "#003F2D" # Selected row highlight color
+  
 # ─────────────────────────────────────────────
 # Settings Helpers
 # ─────────────────────────────────────────────
