@@ -1,7 +1,7 @@
 {
     "meta": {
         "app": "NFL Schedule Builder",
-        "last_saved": "2026-05-14 15:42:55"
+        "last_saved": "2026-05-14 15:48:34"
     },
     "games": [
         {
@@ -425,6 +425,15 @@
             "home_team": "Seattle Seahawks",
             "time": "8:20 PM ET",
             "location": "SEA",
+            "year": 2026
+        },
+        {
+            "week": 18,
+            "date": "TBD",
+            "away_team": "New York Jets",
+            "home_team": "Buffalo Bills",
+            "time": "TBD",
+            "location": "TBD",
             "year": 2026
         }
     ]

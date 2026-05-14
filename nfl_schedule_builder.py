@@ -1,5 +1,6 @@
-# NFL Schedule Builder - GUI Version with Searchable Dropdowns + Week Filter
-# Fixed: week number now sorts numerically (int) not alphabetically (string)
+# NFL Schedule Builder - GUI Version
+# Fixed: filters now correctly update the display
+# Fixed: default view preserves insertion order (order games were added)
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -24,7 +25,6 @@ NFL_TEAMS = sorted([
     "Seattle Seahawks", "Tampa Bay Buccaneers", "Tennessee Titans", "Washington Commanders"
 ])
 
-# Color theme
 BG_COLOR     = "#1a1a2e"
 PANEL_COLOR  = "#16213e"
 ACCENT_COLOR = "#0f3460"
@@ -62,10 +62,8 @@ class SearchableCombobox(tk.Frame):
         self._dropdown         = None
         self._listbox          = None
 
-        # Register this instance
         SearchableCombobox._all_instances.append(self)
 
-        # ── Entry Field ──
         self.var = tk.StringVar()
         self.var.trace("w", self._on_type)
 
@@ -83,14 +81,12 @@ class SearchableCombobox(tk.Frame):
 
         self._show_placeholder()
 
-        # ── Bind Entry Events ──
         self.entry.bind("<FocusIn>",  self._on_focus_in)
         self.entry.bind("<FocusOut>", self._on_focus_out)
         self.entry.bind("<Down>",     self._focus_listbox)
         self.entry.bind("<Return>",   self._on_entry_return)
         self.entry.bind("<Escape>",   lambda e: self._close_dropdown())
 
-        # Bind global click after widget is ready
         self.after(100, self._bind_global_click)
 
     def _bind_global_click(self):
@@ -105,37 +101,28 @@ class SearchableCombobox(tk.Frame):
         return widget
 
     def _on_global_click(self, event):
-        """
-        Close this dropdown if the click was outside
-        the entry widget and the dropdown window.
-        """
+        """Close this dropdown if the click was outside the widget."""
         if not self._dropdown_open:
             return
 
         clicked_widget = event.widget
 
-        # Ignore clicks on our own entry
         if clicked_widget == self.entry:
             return
-
-        # Ignore clicks on our own listbox
         if self._listbox and clicked_widget == self._listbox:
             return
 
-        # Check if click landed inside the dropdown bounding box
         if self._dropdown:
             try:
                 x = self._dropdown.winfo_rootx()
                 y = self._dropdown.winfo_rooty()
                 w = self._dropdown.winfo_width()
                 h = self._dropdown.winfo_height()
-
                 if x <= event.x_root <= x + w and y <= event.y_root <= y + h:
                     return
             except tk.TclError:
                 pass
 
-        # Click was outside — close dropdown
         self._close_dropdown()
         if not self.var.get().strip() or self.var.get() == self.placeholder:
             self._show_placeholder()
@@ -168,17 +155,15 @@ class SearchableCombobox(tk.Frame):
         self.after(200, self._check_close_on_focus_out)
 
     def _check_close_on_focus_out(self):
-        """Close dropdown if focus moved away via keyboard."""
+        """Close dropdown if focus has moved away via keyboard."""
         if self._ignore_focus_out:
             return
         try:
             focused = self._get_root().focus_get()
         except Exception:
             focused = None
-
         if focused == self._listbox or focused == self.entry:
             return
-
         self._close_dropdown()
         if not self.var.get().strip() or self.var.get() == self.placeholder:
             self._show_placeholder()
@@ -270,12 +255,10 @@ class SearchableCombobox(tk.Frame):
     # ── Selection ──
 
     def _on_listbox_click(self, event):
-        """Handle mouse click on a listbox item."""
         self._ignore_focus_out = True
         self.after(10, self._select_current)
 
     def _on_listbox_return(self, event):
-        """Handle Enter key on a listbox item."""
         self._select_current()
 
     def _select_current(self):
@@ -378,19 +361,15 @@ def save_games(filepath, games):
 def _sort_key(game, col_key):
     """
     Return a sort key for a game dict by column.
-    Week and year are cast to int so they sort numerically.
+    Week and year cast to int for numeric sorting.
     All other columns sort as lowercase strings.
     """
     val = game.get(col_key, "")
-
-    # ── Numeric columns: sort as int ──
     if col_key in ("week", "year"):
         try:
-            return (0, int(val))         # (0, int) sorts before (1, str) fallback
+            return (0, int(val))
         except (ValueError, TypeError):
-            return (1, str(val).lower()) # Fallback for non-numeric values
-
-    # ── All other columns: sort as lowercase string ──
+            return (1, str(val).lower())
     return (0, str(val).lower())
 
 
@@ -407,11 +386,15 @@ class NFLSchedulerApp:
         self.root.configure(bg=BG_COLOR)
         self.root.resizable(True, True)
 
-        # Track sort state per column: True = ascending, False = descending
-        self._sort_ascending = {}
-
         self.save_file = DEFAULT_SAVE_FILE
         self.games     = load_games(self.save_file)
+
+        # ── Sort state ──
+        # _sorted_indices holds the current display order as a list of
+        # indices into self.games. None means use insertion order.
+        self._sorted_indices  = None
+        self._sort_col        = None       # Which column is currently sorted
+        self._sort_ascending  = {}         # Per-column sort direction toggle
 
         self._build_menu()
         self._build_header()
@@ -497,7 +480,6 @@ class NFLSchedulerApp:
 
     def _build_form(self, parent):
         """Build the game entry form."""
-
         tk.Label(
             parent,
             text="Add / Edit Game",
@@ -513,23 +495,18 @@ class NFLSchedulerApp:
 
         def label(text):
             tk.Label(
-                form,
-                text=text,
+                form, text=text,
                 font=("Helvetica", 10, "bold"),
-                bg=PANEL_COLOR,
-                fg=TEXT_COLOR,
-                anchor="w"
+                bg=PANEL_COLOR, fg=TEXT_COLOR, anchor="w"
             ).pack(fill="x", pady=(8, 1))
 
         def entry(default=""):
             e = tk.Entry(
                 form,
                 font=("Helvetica", 11),
-                bg=ENTRY_BG,
-                fg=TEXT_COLOR,
+                bg=ENTRY_BG, fg=TEXT_COLOR,
                 insertbackground=TEXT_COLOR,
-                relief="flat",
-                bd=5
+                relief="flat", bd=5
             )
             e.pack(fill="x", ipady=4)
             if default:
@@ -566,16 +543,11 @@ class NFLSchedulerApp:
 
         def styled_btn(text, cmd, color=BUTTON_COLOR):
             return tk.Button(
-                btn_frame,
-                text=text,
-                command=cmd,
+                btn_frame, text=text, command=cmd,
                 font=("Helvetica", 11, "bold"),
-                bg=color,
-                fg=BUTTON_TEXT,
-                relief="flat",
-                bd=0,
-                padx=10,
-                pady=8,
+                bg=color, fg=BUTTON_TEXT,
+                relief="flat", bd=0,
+                padx=10, pady=8,
                 cursor="hand2",
                 activebackground=HIGHLIGHT,
                 activeforeground=TEXT_COLOR
@@ -601,16 +573,13 @@ class NFLSchedulerApp:
             filter_frame,
             text="Schedule View",
             font=("Helvetica", 14, "bold"),
-            bg=PANEL_COLOR,
-            fg=HIGHLIGHT
+            bg=PANEL_COLOR, fg=HIGHLIGHT
         ).grid(row=0, column=0, sticky="w", padx=(0, 15))
 
         tk.Label(
-            filter_frame,
-            text="Team:",
+            filter_frame, text="Team:",
             font=("Helvetica", 10, "bold"),
-            bg=PANEL_COLOR,
-            fg=TEXT_COLOR
+            bg=PANEL_COLOR, fg=TEXT_COLOR
         ).grid(row=0, column=1, sticky="w", padx=(0, 4))
 
         self.filter_team_combo = SearchableCombobox(
@@ -625,11 +594,9 @@ class NFLSchedulerApp:
         )
 
         tk.Label(
-            filter_frame,
-            text="Week:",
+            filter_frame, text="Week:",
             font=("Helvetica", 10, "bold"),
-            bg=PANEL_COLOR,
-            fg=TEXT_COLOR
+            bg=PANEL_COLOR, fg=TEXT_COLOR
         ).grid(row=0, column=3, sticky="w", padx=(10, 4))
 
         self.filter_week_combo = SearchableCombobox(
@@ -644,27 +611,19 @@ class NFLSchedulerApp:
         )
 
         tk.Button(
-            filter_frame,
-            text="Apply",
+            filter_frame, text="Apply",
             command=self.refresh_schedule_view,
             font=("Helvetica", 9, "bold"),
-            bg=HIGHLIGHT,
-            fg=TEXT_COLOR,
-            relief="flat",
-            padx=8, pady=3,
-            cursor="hand2"
+            bg=HIGHLIGHT, fg=TEXT_COLOR,
+            relief="flat", padx=8, pady=3, cursor="hand2"
         ).grid(row=0, column=5, padx=(6, 2))
 
         tk.Button(
-            filter_frame,
-            text="Clear",
+            filter_frame, text="Clear",
             command=self._clear_filters,
             font=("Helvetica", 9),
-            bg=ACCENT_COLOR,
-            fg=TEXT_COLOR,
-            relief="flat",
-            padx=8, pady=3,
-            cursor="hand2"
+            bg=ACCENT_COLOR, fg=TEXT_COLOR,
+            relief="flat", padx=8, pady=3, cursor="hand2"
         ).grid(row=0, column=6, padx=(2, 10))
 
         # ── Search Bar ──
@@ -672,11 +631,9 @@ class NFLSchedulerApp:
         search_frame.pack(fill="x", padx=10, pady=(2, 6))
 
         tk.Label(
-            search_frame,
-            text="🔍 Search:",
+            search_frame, text="🔍 Search:",
             font=("Helvetica", 10, "bold"),
-            bg=PANEL_COLOR,
-            fg=TEXT_COLOR
+            bg=PANEL_COLOR, fg=TEXT_COLOR
         ).pack(side="left", padx=(0, 6))
 
         self.search_var = tk.StringVar()
@@ -686,20 +643,15 @@ class NFLSchedulerApp:
             search_frame,
             textvariable=self.search_var,
             font=("Helvetica", 10),
-            bg=ENTRY_BG,
-            fg=TEXT_COLOR,
+            bg=ENTRY_BG, fg=TEXT_COLOR,
             insertbackground=TEXT_COLOR,
-            relief="flat",
-            bd=4,
-            width=30
+            relief="flat", bd=4, width=30
         ).pack(side="left")
 
         self.filter_status_label = tk.Label(
-            search_frame,
-            text="",
+            search_frame, text="",
             font=("Helvetica", 9, "italic"),
-            bg=PANEL_COLOR,
-            fg=HIGHLIGHT
+            bg=PANEL_COLOR, fg=HIGHLIGHT
         )
         self.filter_status_label.pack(side="left", padx=(15, 0))
 
@@ -723,7 +675,6 @@ class NFLSchedulerApp:
             foreground=[("selected", TEXT_COLOR)]
         )
 
-        # ── Treeview ──
         columns = ("week", "date", "away", "home", "time", "location", "year")
 
         tree_frame = tk.Frame(parent, bg=PANEL_COLOR)
@@ -737,21 +688,27 @@ class NFLSchedulerApp:
             selectmode="browse"
         )
 
-        col_config = {
-            "week":     ("Week",      55),
-            "date":     ("Date",     170),
-            "away":     ("Away Team",175),
-            "home":     ("Home Team",175),
-            "time":     ("Time",     110),
-            "location": ("Location", 170),
-            "year":     ("Season",    65)
+        # Column heading labels (no arrows initially)
+        self._col_headings = {
+            "week":     "Week",
+            "date":     "Date",
+            "away":     "Away Team",
+            "home":     "Home Team",
+            "time":     "Time",
+            "location": "Location",
+            "year":     "Season"
         }
-        for col, (heading, width) in col_config.items():
+        col_widths = {
+            "week": 55, "date": 170, "away": 175,
+            "home": 175, "time": 110, "location": 170, "year": 65
+        }
+        for col in columns:
             self.tree.heading(
-                col, text=heading,
+                col,
+                text=self._col_headings[col],
                 command=lambda c=col: self.sort_tree(c)
             )
-            self.tree.column(col, width=width, anchor="center")
+            self.tree.column(col, width=col_widths[col], anchor="center")
 
         vsb = ttk.Scrollbar(tree_frame, orient="vertical",   command=self.tree.yview)
         hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree.xview)
@@ -766,11 +723,9 @@ class NFLSchedulerApp:
         self.tree.bind("<<TreeviewSelect>>", self.on_row_select)
 
         self.count_label = tk.Label(
-            parent,
-            text="",
+            parent, text="",
             font=("Helvetica", 9, "italic"),
-            bg=PANEL_COLOR,
-            fg=TEXT_COLOR
+            bg=PANEL_COLOR, fg=TEXT_COLOR
         )
         self.count_label.pack(anchor="e", padx=15, pady=(0, 5))
 
@@ -785,10 +740,8 @@ class NFLSchedulerApp:
             self.root,
             textvariable=self.status_var,
             font=("Helvetica", 9),
-            bg=ACCENT_COLOR,
-            fg=TEXT_COLOR,
-            anchor="w",
-            padx=10
+            bg=ACCENT_COLOR, fg=TEXT_COLOR,
+            anchor="w", padx=10
         ).pack(fill="x", side="bottom")
 
     # ─────────────────────────────────────────
@@ -808,6 +761,11 @@ class NFLSchedulerApp:
                 messagebox.showwarning("Duplicate Game", "This game already exists.")
                 return
         self.games.append(game)
+
+        # Reset sort so new game appears at the bottom in insertion order
+        self._sorted_indices = None
+        self._reset_column_headings()
+
         self._save_and_refresh(
             f"Added: Week {game['week']} | {game['away_team']} @ {game['home_team']}"
         )
@@ -822,6 +780,7 @@ class NFLSchedulerApp:
         game = self._get_form_data()
         if game is None:
             return
+        # Retrieve the original games list index from the row tag
         idx = int(self.tree.item(selected[0], "tags")[0])
         self.games[idx] = game
         self._save_and_refresh(
@@ -841,13 +800,23 @@ class NFLSchedulerApp:
             f"Delete Week {g['week']} | {g['away_team']} @ {g['home_team']}?"
         ):
             self.games.pop(idx)
+
+            # Rebuild sorted indices to account for the removed item
+            if self._sorted_indices is not None:
+                # Remove the deleted index and shift higher indices down by 1
+                self._sorted_indices = [
+                    i if i < idx else i - 1
+                    for i in self._sorted_indices
+                    if i != idx
+                ]
+
             self._save_and_refresh(
                 f"Deleted: Week {g['week']} | {g['away_team']} @ {g['home_team']}"
             )
             self.clear_form()
 
     def _get_form_data(self):
-        """Read and validate form fields. Returns game dict or None."""
+        """Read and validate form fields. Returns a game dict or None."""
         week_str = self.week_entry.get().strip()
         if not week_str.isdigit() or not (1 <= int(week_str) <= 23):
             messagebox.showerror("Invalid Week", "Week must be a number between 1 and 23.")
@@ -904,6 +873,7 @@ class NFLSchedulerApp:
         selected = self.tree.selection()
         if not selected:
             return
+        # The tag on every row is the original index in self.games
         idx = int(self.tree.item(selected[0], "tags")[0])
         g = self.games[idx]
 
@@ -916,14 +886,26 @@ class NFLSchedulerApp:
         self.year_entry.delete(0, tk.END);     self.year_entry.insert(0, str(g["year"]))
 
     # ─────────────────────────────────────────
-    # Schedule View
+    # Schedule View Refresh
     # ─────────────────────────────────────────
 
     def refresh_schedule_view(self):
-        """Refresh treeview applying all active filters, sorted by year then week."""
+        """
+        Refresh the treeview applying all active filters.
+
+        Key design:
+        - self.games is NEVER reordered here — it always stays in insertion order.
+        - self._sorted_indices holds a reordered list of indices when a column
+          sort is active. None means use insertion order.
+        - Filters are applied on top of whatever order is active.
+        - Each treeview row is tagged with its original index in self.games
+          so that clicking a row always loads the correct game into the form.
+        """
+        # Clear existing rows
         for row in self.tree.get_children():
             self.tree.delete(row)
 
+        # ── Read filter values ──
         team_filter = self.filter_team_combo.get()
         if not team_filter or team_filter == "All Teams":
             team_filter = None
@@ -938,6 +920,7 @@ class NFLSchedulerApp:
 
         search_term = self.search_var.get().strip().lower()
 
+        # ── Build active filter status text ──
         active_filters = []
         if team_filter:
             active_filters.append(f"Team: {team_filter}")
@@ -945,37 +928,43 @@ class NFLSchedulerApp:
             active_filters.append(f"Week: {week_filter}")
         if search_term:
             active_filters.append(f'Search: "{search_term}"')
-
         self.filter_status_label.config(
             text=("Filters: " + "  |  ".join(active_filters)) if active_filters else ""
         )
 
-        # ── Sort games by year (int) then week (int) before displaying ──
-        # This is the key fix: both year and week are cast to int
-        indexed_games = list(enumerate(self.games))
-        indexed_games.sort(
-            key=lambda x: (
-                int(x[1].get("year", 0)),   # Sort year as int
-                int(x[1].get("week", 0))    # Sort week as int — fixes the bug
-            )
-        )
+        # ── Determine display order ──
+        # If a column sort is active use _sorted_indices,
+        # otherwise use plain insertion order (0, 1, 2, ...)
+        if self._sorted_indices is not None:
+            ordered_indices = self._sorted_indices
+        else:
+            ordered_indices = list(range(len(self.games)))
 
+        # ── Populate treeview ──
         visible = 0
-        for idx, g in indexed_games:
+        for idx in ordered_indices:
+            g = self.games[idx]
 
+            # Apply team filter
             if team_filter:
                 if g["home_team"] != team_filter and g["away_team"] != team_filter:
                     continue
 
+            # Apply week filter — compare as int for correctness
             if week_filter:
-                if str(g["week"]) != week_filter:
+                if int(g["week"]) != int(week_filter):
                     continue
 
+            # Apply search filter
             if search_term:
                 if search_term not in " ".join(str(v).lower() for v in g.values()):
                     continue
 
+            # Alternate row shading
             tag = "even" if visible % 2 == 0 else "odd"
+
+            # Tag each row with its original index in self.games
+            # so on_row_select can always find the right game
             self.tree.insert(
                 "", "end",
                 values=(
@@ -1000,14 +989,14 @@ class NFLSchedulerApp:
         self.update_status("Filters cleared.")
 
     def refresh_filter_options(self):
-        """Update filter dropdowns with values in current schedule."""
+        """Update filter dropdowns with values present in the current schedule."""
         teams = set()
         for g in self.games:
             teams.add(g["home_team"])
             teams.add(g["away_team"])
         self.filter_team_combo.update_values(["All Teams"] + sorted(teams))
 
-        # ── Sort weeks numerically ──
+        # Sort week options numerically
         weeks = sorted(set(g["week"] for g in self.games), key=lambda w: int(w))
         self.filter_week_combo.update_values(
             ["All Weeks"] + [str(w) for w in weeks]
@@ -1016,10 +1005,10 @@ class NFLSchedulerApp:
     def sort_tree(self, col):
         """
         Sort the treeview by the clicked column header.
-        Toggles ascending/descending on repeated clicks.
-        Week and year sort as integers; all other columns sort as strings.
+        Stores the result as a sorted index list in self._sorted_indices
+        so self.games is never mutated.
+        Toggles ascending/descending on repeated clicks of the same column.
         """
-        # Map treeview column id to game dict key
         col_map = {
             "week":     "week",
             "date":     "date",
@@ -1031,39 +1020,42 @@ class NFLSchedulerApp:
         }
         key = col_map.get(col, col)
 
-        # Toggle sort direction for this column
+        # Toggle sort direction
         ascending = self._sort_ascending.get(col, True)
-        self._sort_ascending[col] = not ascending  # Flip for next click
+        self._sort_ascending[col] = not ascending
 
-        # ── Sort using the _sort_key helper for numeric-aware sorting ──
-        self.games.sort(
-            key=lambda g: _sort_key(g, key),
+        # Build a sorted list of indices without touching self.games
+        self._sorted_indices = sorted(
+            range(len(self.games)),
+            key=lambda i: _sort_key(self.games[i], key),
             reverse=not ascending
         )
+        self._sort_col = col
 
-        # Update column heading to show sort direction arrow
-        for c in col_map:
-            heading_text = {
-                "week": "Week", "date": "Date", "away": "Away Team",
-                "home": "Home Team", "time": "Time",
-                "location": "Location", "year": "Season"
-            }[c]
+        # Update column heading arrows
+        for c, label in self._col_headings.items():
             if c == col:
                 arrow = " ▲" if ascending else " ▼"
-                self.tree.heading(c, text=heading_text + arrow)
+                self.tree.heading(c, text=label + arrow)
             else:
-                self.tree.heading(c, text=heading_text)
+                self.tree.heading(c, text=label)
 
         self.refresh_schedule_view()
         direction = "ascending" if ascending else "descending"
         self.update_status(f"Sorted by {col} ({direction})")
+
+    def _reset_column_headings(self):
+        """Remove sort arrows from all column headings."""
+        for c, label in self._col_headings.items():
+            self.tree.heading(c, text=label)
+        self._sort_col = None
 
     # ─────────────────────────────────────────
     # File Operations
     # ─────────────────────────────────────────
 
     def _save_and_refresh(self, msg=""):
-        """Save to file and refresh everything."""
+        """Save to file and refresh view and filter options."""
         save_games(self.save_file, self.games)
         self.refresh_schedule_view()
         self.refresh_filter_options()
@@ -1091,8 +1083,10 @@ class NFLSchedulerApp:
             title="Open Schedule File"
         )
         if path:
-            self.save_file = path
-            self.games     = load_games(self.save_file)
+            self.save_file      = path
+            self.games          = load_games(self.save_file)
+            self._sorted_indices = None   # Reset sort on new file load
+            self._reset_column_headings()
             self.file_label.config(text=f"File: {self.save_file}")
             self.refresh_schedule_view()
             self.refresh_filter_options()
@@ -1103,7 +1097,9 @@ class NFLSchedulerApp:
     def new_schedule(self):
         if messagebox.askyesno("New Schedule",
                                "Start a new schedule? Unsaved changes will be lost."):
-            self.games     = []
+            self.games           = []
+            self._sorted_indices = None   # Reset sort
+            self._reset_column_headings()
             self.save_file = DEFAULT_SAVE_FILE
             self.file_label.config(text=f"File: {self.save_file}")
             self.refresh_schedule_view()
@@ -1128,11 +1124,13 @@ class NFLSchedulerApp:
                     fieldnames=["year","week","date","away_team","home_team","time","location"]
                 )
                 writer.writeheader()
-                # Export sorted by year then week numerically
-                for g in sorted(
-                    self.games,
-                    key=lambda x: (int(x.get("year", 0)), int(x.get("week", 0)))
-                ):
+                # Export in current display order (sorted or insertion)
+                ordered = (
+                    [self.games[i] for i in self._sorted_indices]
+                    if self._sorted_indices is not None
+                    else self.games
+                )
+                for g in ordered:
                     writer.writerow(g)
             self.update_status(f"Exported {len(self.games)} game(s) to '{path}'")
 
@@ -1154,6 +1152,8 @@ class NFLSchedulerApp:
             "  • Click outside to close dropdowns\n"
             "  • Numeric week & year sorting\n"
             "  • Toggle ascending/descending sort\n"
+            "  • Default view: insertion order\n"
+            "  • Filters work independently of sort\n"
             "  • Live search across all fields\n"
             "  • Active filter indicator\n"
             "  • Add, edit, delete games\n"
