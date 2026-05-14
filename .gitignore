@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+#Sensitive Files
+"C:\Users\vincent.a.amato3\OneDrive - US Army\Development\Github\NFL-Schedule-Builder\nfl_scheduler_settings.json"
