@@ -25,17 +25,17 @@ NFL_TEAMS = sorted([
     "Seattle Seahawks", "Tampa Bay Buccaneers", "Tennessee Titans", "Washington Commanders"
 ])
 
-BG_COLOR     = "#1a1a2e"
-PANEL_COLOR  = "#16213e"
-ACCENT_COLOR = "#0f3460"
-HIGHLIGHT    = "#e94560"
+BG_COLOR     = "#ffffff"
+PANEL_COLOR  = "#125740"
+ACCENT_COLOR = "#125740"
+HIGHLIGHT    = "#003F2D"
 TEXT_COLOR   = "#eaeaea"
-BUTTON_COLOR = "#0f3460"
+BUTTON_COLOR = "#125740"
 BUTTON_TEXT  = "#ffffff"
-ENTRY_BG     = "#0d0d1a"
-TREE_BG      = "#0d0d1a"
+ENTRY_BG     = "#003F2D"
+TREE_BG      = "#000000"
 TREE_FG      = "#eaeaea"
-TREE_SELECT  = "#e94560"
+TREE_SELECT  = "#003F2D"
 
 # ─────────────────────────────────────────────
 # Settings Helpers
