@@ -1,7 +1,7 @@
 {
     "meta": {
         "app": "NFL Schedule Builder",
-        "last_saved": "2026-05-14 14:59:31"
+        "last_saved": "2026-05-14 15:21:21"
     },
     "games": [
         {
@@ -146,6 +146,195 @@
             "home_team": "Kansas City Chiefs",
             "time": "8:15 PM ET",
             "location": "KC",
+            "year": 2026
+        },
+        {
+            "week": 2,
+            "date": "09/17/2026",
+            "away_team": "Detroit Lions",
+            "home_team": "Buffalo Bills",
+            "time": "8:15 PM ET",
+            "location": "BUF",
+            "year": 2026
+        },
+        {
+            "week": 2,
+            "date": "09/20/2026",
+            "away_team": "Green Bay Packers",
+            "home_team": "New York Jets",
+            "time": "1:00 PM ET",
+            "location": "NYJ",
+            "year": 2026
+        },
+        {
+            "week": 2,
+            "date": "09/20/2026",
+            "away_team": "Minnesota Vikings",
+            "home_team": "Chicago Bears",
+            "time": "1:00 PM ET",
+            "location": "CHI",
+            "year": 2026
+        },
+        {
+            "week": 2,
+            "date": "09/20/2026",
+            "away_team": "Pittsburgh Steelers",
+            "home_team": "New England Patriots",
+            "time": "1:00 PM ET",
+            "location": "NE",
+            "year": 2026
+        },
+        {
+            "week": 2,
+            "date": "09/20/2026",
+            "away_team": "Cincinnati Bengals",
+            "home_team": "Houston Texans",
+            "time": "1:00 PM ET",
+            "location": "HOU",
+            "year": 2026
+        },
+        {
+            "week": 2,
+            "date": "09/20/2026",
+            "away_team": "Carolina Panthers",
+            "home_team": "Atlanta Falcons",
+            "time": "1:00 PM ET",
+            "location": "ATL",
+            "year": 2026
+        },
+        {
+            "week": 2,
+            "date": "09/20/2026",
+            "away_team": "Cleveland Browns",
+            "home_team": "Tampa Bay Buccaneers",
+            "time": "1:00 PM ET",
+            "location": "TB",
+            "year": 2026
+        },
+        {
+            "week": 2,
+            "date": "09/20/2026",
+            "away_team": "Philadelphia Eagles",
+            "home_team": "Tennessee Titans",
+            "time": "1:00 PM ET",
+            "location": "TEN",
+            "year": 2026
+        },
+        {
+            "week": 2,
+            "date": "09/20/2026",
+            "away_team": "Miami Dolphins",
+            "home_team": "San Francisco 49ers",
+            "time": "4:25 PM ET",
+            "location": "SF",
+            "year": 2026
+        },
+        {
+            "week": 2,
+            "date": "09/20/2026",
+            "away_team": "Indianapolis Colts",
+            "home_team": "Kansas City Chiefs",
+            "time": "8:20 PM ET",
+            "location": "KC",
+            "year": 2026
+        },
+        {
+            "week": 2,
+            "date": "09/21/2026",
+            "away_team": "New York Giants",
+            "home_team": "Los Angeles Rams",
+            "time": "8:15 PM ET",
+            "location": "LAR",
+            "year": 2026
+        },
+        {
+            "week": 15,
+            "date": "12/19/2026",
+            "away_team": "Seattle Seahawks",
+            "home_team": "Philadelphia Eagles",
+            "time": "5:00 PM ET",
+            "location": "PHI",
+            "year": 2026
+        },
+        {
+            "week": 15,
+            "date": "12/19/2026",
+            "away_team": "Chicago Bears",
+            "home_team": "Buffalo Bills",
+            "time": "8:20 PM ET",
+            "location": "BUF",
+            "year": 2026
+        },
+        {
+            "week": 4,
+            "date": "10/04/2026",
+            "away_team": "New York Jets",
+            "home_team": "Chicago Bears",
+            "time": "TBD",
+            "location": "CHI",
+            "year": 2026
+        },
+        {
+            "week": 5,
+            "date": "10/11/2026",
+            "away_team": "Cleveland Browns",
+            "home_team": "New York Jets",
+            "time": "TBD",
+            "location": "NYJ",
+            "year": 2026
+        },
+        {
+            "week": 7,
+            "date": "10/25/2026",
+            "away_team": "Miami Dolphins",
+            "home_team": "New York Jets",
+            "time": "TBD",
+            "location": "NYJ",
+            "year": 2026
+        },
+        {
+            "week": 8,
+            "date": "11/01/2026",
+            "away_team": "Las Vegas Raiders",
+            "home_team": "New York Jets",
+            "time": "TBD",
+            "location": "NYJ",
+            "year": 2026
+        },
+        {
+            "week": 10,
+            "date": "11/15/2026",
+            "away_team": "Buffalo Bills",
+            "home_team": "New York Jets",
+            "time": "TBD",
+            "location": "NYJ",
+            "year": 2026
+        },
+        {
+            "week": 14,
+            "date": "12/13/2026",
+            "away_team": "Denver Broncos",
+            "home_team": "New York Jets",
+            "time": "TBD",
+            "location": "NYJ",
+            "year": 2026
+        },
+        {
+            "week": 16,
+            "date": "12/27/2026",
+            "away_team": "New England Patriots",
+            "home_team": "New York Jets",
+            "time": "TBD",
+            "location": "NYJ",
+            "year": 2026
+        },
+        {
+            "week": 17,
+            "date": "01/03/2027",
+            "away_team": "Minnesota Vikings",
+            "home_team": "New York Jets",
+            "time": "TBD",
+            "location": "NYJ",
             "year": 2026
         }
     ]
