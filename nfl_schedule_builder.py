@@ -687,7 +687,12 @@ class NFLSchedulerApp:
         self.settings = settings
 
         self.root.title("🏈 NFL Schedule Builder")
-        self.root.geometry("1280x780")
+        # Try to start maximized
+        try:
+            self.root.state('zoomed') # Works on Windows
+        except tk.TclError:
+            # Fallback for Mac/Linux or if 'zoomed' fails
+            self.root.geometry("1000x700")
         self.root.configure(bg=BG_COLOR)
         self.root.resizable(True, True)
 
@@ -773,10 +778,36 @@ class NFLSchedulerApp:
         main_frame = tk.Frame(self.root, bg=BG_COLOR)
         main_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        left = tk.Frame(main_frame, bg=PANEL_COLOR, width=320, relief="flat", bd=2)
-        left.pack(side="left", fill="y", padx=(0, 10))
-        left.pack_propagate(False)
-        self._build_form(left)
+        # 1. Create the container for the sidebar
+        left_container = tk.Frame(main_frame, bg=PANEL_COLOR, width=320, relief="flat", bd=2)
+        left_container.pack(side="left", fill="y", padx=(0, 10))
+        left_container.pack_propagate(False)
+
+        # 2. Add a Canvas and a Scrollbar
+        canvas = tk.Canvas(left_container, bg=PANEL_COLOR, highlightthickness=0, width=300)
+        scrollbar = ttk.Scrollbar(left_container, orient="vertical", command=canvas.yview)
+        
+        # 3. Create the actual frame that will hold the form
+        # Note: We pass 'canvas' as the parent now
+        self.form_inner_frame = tk.Frame(canvas, bg=PANEL_COLOR)
+
+        # 4. Configure Canvas to scroll the frame
+        self.form_inner_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=self.form_inner_frame, anchor="nw", width=300)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # 5. Pack the Canvas and Scrollbar
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # 6. Bind mouse wheel to the canvas
+        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+
+        # Now call _build_form using our new inner frame
+        self._build_form(self.form_inner_frame)
 
         right = tk.Frame(main_frame, bg=PANEL_COLOR, relief="flat", bd=2)
         right.pack(side="left", fill="both", expand=True)
