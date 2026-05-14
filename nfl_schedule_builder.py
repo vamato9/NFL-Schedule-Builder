@@ -1,6 +1,5 @@
 # NFL Schedule Builder - GUI Version
-# Fixed: filters now correctly update the display
-# Fixed: default view preserves insertion order (order games were added)
+# Fixed: dropdown closes and stays closed after selecting a team
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -13,6 +12,7 @@ from datetime import datetime
 # ─────────────────────────────────────────────
 
 DEFAULT_SAVE_FILE = "nfl_schedule.json"
+SETTINGS_FILE     = "nfl_scheduler_settings.json"
 
 NFL_TEAMS = sorted([
     "Arizona Cardinals", "Atlanta Falcons", "Baltimore Ravens", "Buffalo Bills",
@@ -38,6 +38,258 @@ TREE_FG      = "#eaeaea"
 TREE_SELECT  = "#e94560"
 
 # ─────────────────────────────────────────────
+# Settings Helpers
+# ─────────────────────────────────────────────
+
+def load_settings():
+    """Load app settings. Returns dict with last_file and recent_files."""
+    defaults = {"last_file": None, "recent_files": []}
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, "r") as f:
+                data = json.load(f)
+                defaults.update(data)
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return defaults
+
+
+def save_settings(settings):
+    """Persist app settings to JSON."""
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=4)
+
+
+def record_recent_file(settings, filepath):
+    """Add filepath to top of recent files list (max 5)."""
+    recent = settings.get("recent_files", [])
+    if filepath in recent:
+        recent.remove(filepath)
+    recent.insert(0, filepath)
+    settings["recent_files"] = recent[:5]
+    settings["last_file"]    = filepath
+
+
+# ─────────────────────────────────────────────
+# Startup Dialog
+# ─────────────────────────────────────────────
+
+class StartupDialog(tk.Toplevel):
+    """
+    Modal startup dialog shown before the main window opens.
+    Lets the user resume the last file, pick a recent file,
+    browse for a file, or start a new schedule.
+    """
+
+    def __init__(self, parent, settings):
+        super().__init__(parent)
+        self.title("NFL Schedule Builder — Open Schedule")
+        self.resizable(False, False)
+        self.configure(bg=BG_COLOR)
+        self.grab_set()
+        self.focus_set()
+
+        self.chosen_file = None
+        self.settings    = settings
+
+        self._build_ui()
+
+        self.update_idletasks()
+        w  = self.winfo_width()
+        h  = self.winfo_height()
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        self.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 2}")
+
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+    def _build_ui(self):
+        """Build all dialog widgets."""
+
+        # ── Header ──
+        header = tk.Frame(self, bg=HIGHLIGHT)
+        header.pack(fill="x")
+        tk.Label(
+            header,
+            text="🏈  NFL Schedule Builder",
+            font=("Helvetica", 20, "bold"),
+            bg=HIGHLIGHT, fg=TEXT_COLOR, pady=16
+        ).pack()
+
+        body = tk.Frame(self, bg=BG_COLOR, padx=30, pady=20)
+        body.pack(fill="both", expand=True)
+
+        last_file    = self.settings.get("last_file")
+        recent_files = self.settings.get("recent_files", [])
+
+        # ── Resume last file ──
+        if last_file and os.path.exists(last_file):
+            tk.Label(
+                body,
+                text="Resume Last Session",
+                font=("Helvetica", 12, "bold"),
+                bg=BG_COLOR, fg=HIGHLIGHT
+            ).pack(anchor="w", pady=(0, 6))
+
+            try:
+                mtime     = os.path.getmtime(last_file)
+                mtime_str = datetime.fromtimestamp(mtime).strftime("%b %d, %Y  %I:%M %p")
+            except OSError:
+                mtime_str = "Unknown"
+
+            resume_frame = tk.Frame(body, bg=PANEL_COLOR, padx=12, pady=10)
+            resume_frame.pack(fill="x", pady=(0, 16))
+
+            tk.Label(
+                resume_frame,
+                text=f"📄  {os.path.basename(last_file)}",
+                font=("Helvetica", 11, "bold"),
+                bg=PANEL_COLOR, fg=TEXT_COLOR, anchor="w"
+            ).pack(fill="x")
+
+            tk.Label(
+                resume_frame,
+                text=f"📁  {last_file}",
+                font=("Helvetica", 9),
+                bg=PANEL_COLOR, fg="#888888",
+                anchor="w", wraplength=380
+            ).pack(fill="x")
+
+            tk.Label(
+                resume_frame,
+                text=f"🕐  Last modified: {mtime_str}",
+                font=("Helvetica", 9, "italic"),
+                bg=PANEL_COLOR, fg="#aaaaaa", anchor="w"
+            ).pack(fill="x", pady=(4, 0))
+
+            tk.Button(
+                resume_frame,
+                text="▶  Resume This File",
+                command=lambda f=last_file: self._choose(f),
+                font=("Helvetica", 11, "bold"),
+                bg=HIGHLIGHT, fg=TEXT_COLOR,
+                relief="flat", padx=10, pady=7, cursor="hand2",
+                activebackground="#c73652", activeforeground=TEXT_COLOR
+            ).pack(fill="x", pady=(10, 0))
+
+        elif last_file and not os.path.exists(last_file):
+            tk.Label(
+                body,
+                text=f"⚠️  Last file not found:\n{last_file}",
+                font=("Helvetica", 9, "italic"),
+                bg=BG_COLOR, fg="#e0a000",
+                wraplength=380, justify="left"
+            ).pack(anchor="w", pady=(0, 10))
+
+        # ── Recent files ──
+        other_recent = [
+            f for f in recent_files
+            if f != last_file and os.path.exists(f)
+        ]
+
+        if other_recent:
+            tk.Label(
+                body,
+                text="Recent Files",
+                font=("Helvetica", 12, "bold"),
+                bg=BG_COLOR, fg=HIGHLIGHT
+            ).pack(anchor="w", pady=(0, 6))
+
+            recent_frame = tk.Frame(body, bg=PANEL_COLOR, padx=12, pady=8)
+            recent_frame.pack(fill="x", pady=(0, 16))
+
+            for filepath in other_recent:
+                row = tk.Frame(recent_frame, bg=PANEL_COLOR)
+                row.pack(fill="x", pady=2)
+
+                tk.Label(
+                    row,
+                    text=f"📄  {os.path.basename(filepath)}",
+                    font=("Helvetica", 10),
+                    bg=PANEL_COLOR, fg=TEXT_COLOR,
+                    anchor="w", width=28
+                ).pack(side="left")
+
+                tk.Label(
+                    row,
+                    text=filepath,
+                    font=("Helvetica", 8),
+                    bg=PANEL_COLOR, fg="#888888", anchor="w"
+                ).pack(side="left", fill="x", expand=True, padx=(6, 10))
+
+                tk.Button(
+                    row,
+                    text="Open",
+                    command=lambda f=filepath: self._choose(f),
+                    font=("Helvetica", 9, "bold"),
+                    bg=BUTTON_COLOR, fg=TEXT_COLOR,
+                    relief="flat", padx=8, pady=3, cursor="hand2",
+                    activebackground=HIGHLIGHT, activeforeground=TEXT_COLOR
+                ).pack(side="right")
+
+        # ── Divider ──
+        tk.Frame(body, bg=ACCENT_COLOR, height=1).pack(fill="x", pady=(0, 16))
+
+        # ── Other options ──
+        tk.Label(
+            body,
+            text="Other Options",
+            font=("Helvetica", 12, "bold"),
+            bg=BG_COLOR, fg=HIGHLIGHT
+        ).pack(anchor="w", pady=(0, 8))
+
+        options_frame = tk.Frame(body, bg=BG_COLOR)
+        options_frame.pack(fill="x")
+
+        tk.Button(
+            options_frame,
+            text="📂  Browse for Schedule File...",
+            command=self._browse,
+            font=("Helvetica", 11),
+            bg=BUTTON_COLOR, fg=TEXT_COLOR,
+            relief="flat", padx=10, pady=8, cursor="hand2",
+            activebackground=HIGHLIGHT, activeforeground=TEXT_COLOR
+        ).pack(fill="x", pady=3)
+
+        tk.Button(
+            options_frame,
+            text="➕  Start a New Schedule",
+            command=self._new,
+            font=("Helvetica", 11),
+            bg=ACCENT_COLOR, fg=TEXT_COLOR,
+            relief="flat", padx=10, pady=8, cursor="hand2",
+            activebackground=HIGHLIGHT, activeforeground=TEXT_COLOR
+        ).pack(fill="x", pady=3)
+
+    def _choose(self, filepath):
+        self.chosen_file = filepath
+        self.destroy()
+
+    def _browse(self):
+        path = filedialog.askopenfilename(
+            parent=self,
+            filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")],
+            title="Open Schedule File"
+        )
+        if path:
+            self.chosen_file = path
+            self.destroy()
+
+    def _new(self):
+        self.chosen_file = "__NEW__"
+        self.destroy()
+
+    def _on_cancel(self):
+        self._get_root_window().quit()
+
+    def _get_root_window(self):
+        widget = self
+        while widget.master:
+            widget = widget.master
+        return widget
+
+
+# ─────────────────────────────────────────────
 # Searchable Combobox Widget
 # ─────────────────────────────────────────────
 
@@ -45,10 +297,9 @@ class SearchableCombobox(tk.Frame):
     """
     A custom searchable combobox widget.
     Filters the dropdown list in real time as the user types.
-    Closes the dropdown when clicking anywhere outside of it.
+    Closes and STAYS closed after a selection is made.
     """
 
-    # Class-level registry so we can close all others when one opens
     _all_instances = []
 
     def __init__(self, parent, values=None, placeholder="Type to search...",
@@ -62,6 +313,11 @@ class SearchableCombobox(tk.Frame):
         self._dropdown         = None
         self._listbox          = None
 
+        # ── Key fix: lock flag to prevent dropdown reopening after selection ──
+        # When True, _on_focus_in will not reopen the dropdown.
+        # Reset to False after a short delay once selection is complete.
+        self._just_selected    = False
+
         SearchableCombobox._all_instances.append(self)
 
         self.var = tk.StringVar()
@@ -71,11 +327,9 @@ class SearchableCombobox(tk.Frame):
             self,
             textvariable=self.var,
             font=font,
-            bg=bg,
-            fg=fg,
+            bg=bg, fg=fg,
             insertbackground=fg,
-            relief="flat",
-            bd=5
+            relief="flat", bd=5
         )
         self.entry.pack(fill="x", ipady=4)
 
@@ -94,24 +348,20 @@ class SearchableCombobox(tk.Frame):
         self.entry.bind_all("<ButtonPress-1>", self._on_global_click, add="+")
 
     def _get_root(self):
-        """Walk up the widget tree to find the root Tk window."""
+        """Walk up to find the root Tk window."""
         widget = self
         while widget.master:
             widget = widget.master
         return widget
 
     def _on_global_click(self, event):
-        """Close this dropdown if the click was outside the widget."""
+        """Close dropdown if the click was outside this widget."""
         if not self._dropdown_open:
             return
-
-        clicked_widget = event.widget
-
-        if clicked_widget == self.entry:
+        if event.widget == self.entry:
             return
-        if self._listbox and clicked_widget == self._listbox:
+        if self._listbox and event.widget == self._listbox:
             return
-
         if self._dropdown:
             try:
                 x = self._dropdown.winfo_rootx()
@@ -122,7 +372,6 @@ class SearchableCombobox(tk.Frame):
                     return
             except tk.TclError:
                 pass
-
         self._close_dropdown()
         if not self.var.get().strip() or self.var.get() == self.placeholder:
             self._show_placeholder()
@@ -136,26 +385,34 @@ class SearchableCombobox(tk.Frame):
         self._has_placeholder = True
 
     def _clear_placeholder(self):
-        """Remove placeholder when user focuses the field."""
+        """Remove placeholder on focus."""
         if getattr(self, "_has_placeholder", False):
             self.var.set("")
             self.entry.config(fg=TEXT_COLOR)
             self._has_placeholder = False
 
     def _on_focus_in(self, event):
-        """Clear placeholder and open dropdown on focus."""
+        """
+        Open dropdown on focus — but only if a selection was not
+        just made. This prevents the dropdown from reopening
+        immediately after the user clicks a list item.
+        """
+        # If we just completed a selection, skip reopening
+        if self._just_selected:
+            return
+
         self._clear_placeholder()
         self._close_all_others()
         self._open_dropdown(self.all_values)
 
     def _on_focus_out(self, event):
-        """Fallback close for keyboard-based focus changes."""
+        """Fallback close for keyboard navigation."""
         if self._ignore_focus_out:
             return
         self.after(200, self._check_close_on_focus_out)
 
     def _check_close_on_focus_out(self):
-        """Close dropdown if focus has moved away via keyboard."""
+        """Close if focus moved away via keyboard."""
         if self._ignore_focus_out:
             return
         try:
@@ -177,12 +434,22 @@ class SearchableCombobox(tk.Frame):
     # ── Typing Filter ──
 
     def _on_type(self, *args):
-        """Filter the dropdown list as the user types."""
+        """
+        Filter the dropdown as the user types.
+        Skips filtering if a selection was just made to prevent
+        the dropdown from reopening with a filtered list.
+        """
         if getattr(self, "_has_placeholder", False):
             return
+
+        # Don't reopen the dropdown right after a selection
+        if self._just_selected:
+            return
+
         typed = self.var.get().strip().lower()
         if typed == self.placeholder.lower():
             return
+
         filtered = self.all_values if not typed else [
             t for t in self.all_values if typed in t.lower()
         ]
@@ -192,6 +459,10 @@ class SearchableCombobox(tk.Frame):
 
     def _open_dropdown(self, options):
         """Open or refresh the floating dropdown listbox."""
+        # Do not open if a selection was just made
+        if self._just_selected:
+            return
+
         if self._dropdown:
             self._dropdown.destroy()
             self._dropdown = None
@@ -218,12 +489,10 @@ class SearchableCombobox(tk.Frame):
             self._dropdown,
             yscrollcommand=scrollbar.set,
             font=("Helvetica", 11),
-            bg=ENTRY_BG,
-            fg=TEXT_COLOR,
+            bg=ENTRY_BG, fg=TEXT_COLOR,
             selectbackground=HIGHLIGHT,
             selectforeground=TEXT_COLOR,
-            relief="flat",
-            bd=0,
+            relief="flat", bd=0,
             activestyle="dotbox",
             highlightthickness=1,
             highlightcolor=HIGHLIGHT
@@ -255,34 +524,61 @@ class SearchableCombobox(tk.Frame):
     # ── Selection ──
 
     def _on_listbox_click(self, event):
+        """Handle mouse click on a listbox item."""
         self._ignore_focus_out = True
         self.after(10, self._select_current)
 
     def _on_listbox_return(self, event):
+        """Handle Enter on a listbox item."""
         self._select_current()
 
     def _select_current(self):
-        """Set the entry to the selected listbox item."""
+        """
+        Set the entry to the selected listbox item and close the dropdown.
+        Sets _just_selected = True to block the dropdown from reopening
+        when focus returns to the entry after the listbox click.
+        Resets _just_selected after a short delay.
+        """
         if self._listbox:
             sel = self._listbox.curselection()
             if sel:
                 value = self._listbox.get(sel[0])
                 self._has_placeholder = False
+
+                # ── Set lock BEFORE setting var to block _on_type ──
+                self._just_selected = True
+
                 self.var.set(value)
                 self.entry.config(fg=TEXT_COLOR)
+
+        # Close the dropdown
         self._close_dropdown()
         self._ignore_focus_out = False
+
+        # Return focus to the entry (this triggers _on_focus_in,
+        # but _just_selected=True will block it from reopening)
         self.entry.focus_set()
+
+        # ── Reset the lock after a short delay ──
+        # 300ms is enough for all the focus/click events to settle
+        self.after(300, self._clear_just_selected)
+
+    def _clear_just_selected(self):
+        """Release the post-selection lock so dropdown can open again on next focus."""
+        self._just_selected = False
 
     def _on_entry_return(self, event):
         """Auto-select if only one match remains on Enter."""
         typed = self.var.get().strip().lower()
         matches = [t for t in self.all_values if typed in t.lower()]
         if len(matches) == 1:
+            # Set lock before setting value
+            self._just_selected = True
             self.var.set(matches[0])
             self.entry.config(fg=TEXT_COLOR)
             self._has_placeholder = False
             self._close_dropdown()
+            self.after(300, self._clear_just_selected)
 
     def _focus_listbox(self, event):
         """Move focus into the listbox on Down arrow."""
@@ -309,14 +605,18 @@ class SearchableCombobox(tk.Frame):
 
     def set(self, value):
         """Programmatically set the combobox value."""
-        self._has_placeholder = False
+        # Lock to prevent _on_type from reopening the dropdown
+        self._just_selected    = True
+        self._has_placeholder  = False
         self.var.set(value)
         self.entry.config(fg=TEXT_COLOR)
         self._close_dropdown()
+        self.after(300, self._clear_just_selected)
 
     def clear(self):
         """Clear entry and restore placeholder."""
         self._close_dropdown()
+        self._just_selected = False
         self._show_placeholder()
 
     def update_values(self, new_values):
@@ -336,7 +636,9 @@ def load_games(filepath):
                 data = json.load(f)
                 return data.get("games", [])
         except (json.JSONDecodeError, KeyError):
-            messagebox.showwarning("Load Warning", f"Could not read '{filepath}'. Starting fresh.")
+            messagebox.showwarning(
+                "Load Warning", f"Could not read '{filepath}'. Starting fresh."
+            )
             return []
     return []
 
@@ -359,11 +661,7 @@ def save_games(filepath, games):
 # ─────────────────────────────────────────────
 
 def _sort_key(game, col_key):
-    """
-    Return a sort key for a game dict by column.
-    Week and year cast to int for numeric sorting.
-    All other columns sort as lowercase strings.
-    """
+    """Numeric sort for week/year, string sort for everything else."""
     val = game.get(col_key, "")
     if col_key in ("week", "year"):
         try:
@@ -378,23 +676,31 @@ def _sort_key(game, col_key):
 # ─────────────────────────────────────────────
 
 class NFLSchedulerApp:
-    def __init__(self, root):
-        """Initialize the main application."""
-        self.root = root
+    def __init__(self, root, initial_file, settings):
+        """
+        Initialize the main application.
+        :param root: Root Tk window
+        :param initial_file: File path chosen at startup, or None for new
+        :param settings: Loaded settings dict
+        """
+        self.root     = root
+        self.settings = settings
+
         self.root.title("🏈 NFL Schedule Builder")
         self.root.geometry("1280x780")
         self.root.configure(bg=BG_COLOR)
         self.root.resizable(True, True)
 
-        self.save_file = DEFAULT_SAVE_FILE
-        self.games     = load_games(self.save_file)
+        self._sorted_indices = None
+        self._sort_col       = None
+        self._sort_ascending = {}
 
-        # ── Sort state ──
-        # _sorted_indices holds the current display order as a list of
-        # indices into self.games. None means use insertion order.
-        self._sorted_indices  = None
-        self._sort_col        = None       # Which column is currently sorted
-        self._sort_ascending  = {}         # Per-column sort direction toggle
+        if initial_file:
+            self.save_file = initial_file
+            self.games     = load_games(self.save_file)
+        else:
+            self.save_file = DEFAULT_SAVE_FILE
+            self.games     = []
 
         self._build_menu()
         self._build_header()
@@ -403,14 +709,20 @@ class NFLSchedulerApp:
 
         self.refresh_schedule_view()
         self.refresh_filter_options()
-        self.update_status(f"Loaded {len(self.games)} game(s) from '{self.save_file}'")
+        self.update_status(
+            f"Loaded {len(self.games)} game(s) from '{self.save_file}'"
+            if initial_file else "New schedule started."
+        )
+
+        if initial_file:
+            record_recent_file(self.settings, self.save_file)
+            save_settings(self.settings)
 
     # ─────────────────────────────────────────
     # Menu Bar
     # ─────────────────────────────────────────
 
     def _build_menu(self):
-        """Build the top menu bar."""
         menubar = tk.Menu(self.root, bg=ACCENT_COLOR, fg=TEXT_COLOR, tearoff=0)
 
         file_menu = tk.Menu(menubar, tearoff=0, bg=PANEL_COLOR, fg=TEXT_COLOR)
@@ -435,7 +747,6 @@ class NFLSchedulerApp:
     # ─────────────────────────────────────────
 
     def _build_header(self):
-        """Build the top header banner."""
         header = tk.Frame(self.root, bg=HIGHLIGHT, height=55)
         header.pack(fill="x", side="top")
 
@@ -443,16 +754,14 @@ class NFLSchedulerApp:
             header,
             text="🏈  NFL Schedule Builder",
             font=("Helvetica", 22, "bold"),
-            bg=HIGHLIGHT,
-            fg=TEXT_COLOR
+            bg=HIGHLIGHT, fg=TEXT_COLOR
         ).pack(side="left", padx=20, pady=10)
 
         self.file_label = tk.Label(
             header,
             text=f"File: {self.save_file}",
             font=("Helvetica", 10),
-            bg=HIGHLIGHT,
-            fg=TEXT_COLOR
+            bg=HIGHLIGHT, fg=TEXT_COLOR
         )
         self.file_label.pack(side="right", padx=20)
 
@@ -461,7 +770,6 @@ class NFLSchedulerApp:
     # ─────────────────────────────────────────
 
     def _build_main_layout(self):
-        """Build the two-panel main layout."""
         main_frame = tk.Frame(self.root, bg=BG_COLOR)
         main_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
@@ -479,13 +787,11 @@ class NFLSchedulerApp:
     # ─────────────────────────────────────────
 
     def _build_form(self, parent):
-        """Build the game entry form."""
         tk.Label(
             parent,
             text="Add / Edit Game",
             font=("Helvetica", 14, "bold"),
-            bg=PANEL_COLOR,
-            fg=HIGHLIGHT
+            bg=PANEL_COLOR, fg=HIGHLIGHT
         ).pack(pady=(15, 5))
 
         tk.Frame(parent, bg=HIGHLIGHT, height=2).pack(fill="x", padx=15, pady=(0, 10))
@@ -547,8 +853,7 @@ class NFLSchedulerApp:
                 font=("Helvetica", 11, "bold"),
                 bg=color, fg=BUTTON_TEXT,
                 relief="flat", bd=0,
-                padx=10, pady=8,
-                cursor="hand2",
+                padx=10, pady=8, cursor="hand2",
                 activebackground=HIGHLIGHT,
                 activeforeground=TEXT_COLOR
             )
@@ -563,9 +868,6 @@ class NFLSchedulerApp:
     # ─────────────────────────────────────────
 
     def _build_schedule_view(self, parent):
-        """Build the schedule treeview with team and week filters."""
-
-        # ── Filter Bar ──
         filter_frame = tk.Frame(parent, bg=PANEL_COLOR)
         filter_frame.pack(fill="x", padx=10, pady=(10, 2))
 
@@ -626,7 +928,6 @@ class NFLSchedulerApp:
             relief="flat", padx=8, pady=3, cursor="hand2"
         ).grid(row=0, column=6, padx=(2, 10))
 
-        # ── Search Bar ──
         search_frame = tk.Frame(parent, bg=PANEL_COLOR)
         search_frame.pack(fill="x", padx=10, pady=(2, 6))
 
@@ -655,7 +956,6 @@ class NFLSchedulerApp:
         )
         self.filter_status_label.pack(side="left", padx=(15, 0))
 
-        # ── Treeview Styling ──
         style = ttk.Style()
         style.theme_use("clam")
         style.configure(
@@ -688,7 +988,6 @@ class NFLSchedulerApp:
             selectmode="browse"
         )
 
-        # Column heading labels (no arrows initially)
         self._col_headings = {
             "week":     "Week",
             "date":     "Date",
@@ -734,7 +1033,6 @@ class NFLSchedulerApp:
     # ─────────────────────────────────────────
 
     def _build_status_bar(self):
-        """Build the bottom status bar."""
         self.status_var = tk.StringVar(value="Ready")
         tk.Label(
             self.root,
@@ -749,7 +1047,6 @@ class NFLSchedulerApp:
     # ─────────────────────────────────────────
 
     def add_game(self):
-        """Validate and add a new game."""
         game = self._get_form_data()
         if game is None:
             return
@@ -761,18 +1058,14 @@ class NFLSchedulerApp:
                 messagebox.showwarning("Duplicate Game", "This game already exists.")
                 return
         self.games.append(game)
-
-        # Reset sort so new game appears at the bottom in insertion order
         self._sorted_indices = None
         self._reset_column_headings()
-
         self._save_and_refresh(
             f"Added: Week {game['week']} | {game['away_team']} @ {game['home_team']}"
         )
         self.clear_form()
 
     def update_game(self):
-        """Update the selected game."""
         selected = self.tree.selection()
         if not selected:
             messagebox.showinfo("No Selection", "Click a game to select it first.")
@@ -780,7 +1073,6 @@ class NFLSchedulerApp:
         game = self._get_form_data()
         if game is None:
             return
-        # Retrieve the original games list index from the row tag
         idx = int(self.tree.item(selected[0], "tags")[0])
         self.games[idx] = game
         self._save_and_refresh(
@@ -788,7 +1080,6 @@ class NFLSchedulerApp:
         )
 
     def delete_game(self):
-        """Delete the selected game after confirmation."""
         selected = self.tree.selection()
         if not selected:
             messagebox.showinfo("No Selection", "Click a game to select it first.")
@@ -800,23 +1091,17 @@ class NFLSchedulerApp:
             f"Delete Week {g['week']} | {g['away_team']} @ {g['home_team']}?"
         ):
             self.games.pop(idx)
-
-            # Rebuild sorted indices to account for the removed item
             if self._sorted_indices is not None:
-                # Remove the deleted index and shift higher indices down by 1
                 self._sorted_indices = [
                     i if i < idx else i - 1
-                    for i in self._sorted_indices
-                    if i != idx
+                    for i in self._sorted_indices if i != idx
                 ]
-
             self._save_and_refresh(
                 f"Deleted: Week {g['week']} | {g['away_team']} @ {g['home_team']}"
             )
             self.clear_form()
 
     def _get_form_data(self):
-        """Read and validate form fields. Returns a game dict or None."""
         week_str = self.week_entry.get().strip()
         if not week_str.isdigit() or not (1 <= int(week_str) <= 23):
             messagebox.showerror("Invalid Week", "Week must be a number between 1 and 23.")
@@ -858,7 +1143,6 @@ class NFLSchedulerApp:
         }
 
     def clear_form(self):
-        """Reset all form fields."""
         self.week_entry.delete(0, tk.END)
         self.date_entry.delete(0, tk.END);     self.date_entry.insert(0, "TBD")
         self.away_combo.clear()
@@ -869,14 +1153,11 @@ class NFLSchedulerApp:
         self.tree.selection_remove(self.tree.selection())
 
     def on_row_select(self, event):
-        """Populate the form when a row is clicked."""
         selected = self.tree.selection()
         if not selected:
             return
-        # The tag on every row is the original index in self.games
         idx = int(self.tree.item(selected[0], "tags")[0])
         g = self.games[idx]
-
         self.week_entry.delete(0, tk.END);     self.week_entry.insert(0, str(g["week"]))
         self.date_entry.delete(0, tk.END);     self.date_entry.insert(0, g["date"])
         self.away_combo.set(g["away_team"])
@@ -886,26 +1167,14 @@ class NFLSchedulerApp:
         self.year_entry.delete(0, tk.END);     self.year_entry.insert(0, str(g["year"]))
 
     # ─────────────────────────────────────────
-    # Schedule View Refresh
+    # Schedule View
     # ─────────────────────────────────────────
 
     def refresh_schedule_view(self):
-        """
-        Refresh the treeview applying all active filters.
-
-        Key design:
-        - self.games is NEVER reordered here — it always stays in insertion order.
-        - self._sorted_indices holds a reordered list of indices when a column
-          sort is active. None means use insertion order.
-        - Filters are applied on top of whatever order is active.
-        - Each treeview row is tagged with its original index in self.games
-          so that clicking a row always loads the correct game into the form.
-        """
-        # Clear existing rows
+        """Refresh the treeview with current filters applied."""
         for row in self.tree.get_children():
             self.tree.delete(row)
 
-        # ── Read filter values ──
         team_filter = self.filter_team_combo.get()
         if not team_filter or team_filter == "All Teams":
             team_filter = None
@@ -920,51 +1189,35 @@ class NFLSchedulerApp:
 
         search_term = self.search_var.get().strip().lower()
 
-        # ── Build active filter status text ──
         active_filters = []
-        if team_filter:
-            active_filters.append(f"Team: {team_filter}")
-        if week_filter:
-            active_filters.append(f"Week: {week_filter}")
-        if search_term:
-            active_filters.append(f'Search: "{search_term}"')
+        if team_filter:  active_filters.append(f"Team: {team_filter}")
+        if week_filter:  active_filters.append(f"Week: {week_filter}")
+        if search_term:  active_filters.append(f'Search: "{search_term}"')
         self.filter_status_label.config(
             text=("Filters: " + "  |  ".join(active_filters)) if active_filters else ""
         )
 
-        # ── Determine display order ──
-        # If a column sort is active use _sorted_indices,
-        # otherwise use plain insertion order (0, 1, 2, ...)
-        if self._sorted_indices is not None:
-            ordered_indices = self._sorted_indices
-        else:
-            ordered_indices = list(range(len(self.games)))
+        ordered_indices = (
+            self._sorted_indices
+            if self._sorted_indices is not None
+            else list(range(len(self.games)))
+        )
 
-        # ── Populate treeview ──
         visible = 0
         for idx in ordered_indices:
             g = self.games[idx]
 
-            # Apply team filter
             if team_filter:
                 if g["home_team"] != team_filter and g["away_team"] != team_filter:
                     continue
-
-            # Apply week filter — compare as int for correctness
             if week_filter:
                 if int(g["week"]) != int(week_filter):
                     continue
-
-            # Apply search filter
             if search_term:
                 if search_term not in " ".join(str(v).lower() for v in g.values()):
                     continue
 
-            # Alternate row shading
             tag = "even" if visible % 2 == 0 else "odd"
-
-            # Tag each row with its original index in self.games
-            # so on_row_select can always find the right game
             self.tree.insert(
                 "", "end",
                 values=(
@@ -981,7 +1234,6 @@ class NFLSchedulerApp:
         self.count_label.config(text=f"Showing {visible} of {len(self.games)} game(s)")
 
     def _clear_filters(self):
-        """Clear all filters and refresh."""
         self.filter_team_combo.clear()
         self.filter_week_combo.clear()
         self.search_var.set("")
@@ -989,42 +1241,26 @@ class NFLSchedulerApp:
         self.update_status("Filters cleared.")
 
     def refresh_filter_options(self):
-        """Update filter dropdowns with values present in the current schedule."""
         teams = set()
         for g in self.games:
             teams.add(g["home_team"])
             teams.add(g["away_team"])
         self.filter_team_combo.update_values(["All Teams"] + sorted(teams))
-
-        # Sort week options numerically
         weeks = sorted(set(g["week"] for g in self.games), key=lambda w: int(w))
         self.filter_week_combo.update_values(
             ["All Weeks"] + [str(w) for w in weeks]
         )
 
     def sort_tree(self, col):
-        """
-        Sort the treeview by the clicked column header.
-        Stores the result as a sorted index list in self._sorted_indices
-        so self.games is never mutated.
-        Toggles ascending/descending on repeated clicks of the same column.
-        """
         col_map = {
-            "week":     "week",
-            "date":     "date",
-            "away":     "away_team",
-            "home":     "home_team",
-            "time":     "time",
-            "location": "location",
-            "year":     "year"
+            "week": "week", "date": "date", "away": "away_team",
+            "home": "home_team", "time": "time",
+            "location": "location", "year": "year"
         }
-        key = col_map.get(col, col)
-
-        # Toggle sort direction
+        key       = col_map.get(col, col)
         ascending = self._sort_ascending.get(col, True)
         self._sort_ascending[col] = not ascending
 
-        # Build a sorted list of indices without touching self.games
         self._sorted_indices = sorted(
             range(len(self.games)),
             key=lambda i: _sort_key(self.games[i], key),
@@ -1032,20 +1268,16 @@ class NFLSchedulerApp:
         )
         self._sort_col = col
 
-        # Update column heading arrows
         for c, label in self._col_headings.items():
-            if c == col:
-                arrow = " ▲" if ascending else " ▼"
-                self.tree.heading(c, text=label + arrow)
-            else:
-                self.tree.heading(c, text=label)
+            arrow = (" ▲" if ascending else " ▼") if c == col else ""
+            self.tree.heading(c, text=label + arrow)
 
         self.refresh_schedule_view()
-        direction = "ascending" if ascending else "descending"
-        self.update_status(f"Sorted by {col} ({direction})")
+        self.update_status(
+            f"Sorted by {col} ({'ascending' if ascending else 'descending'})"
+        )
 
     def _reset_column_headings(self):
-        """Remove sort arrows from all column headings."""
         for c, label in self._col_headings.items():
             self.tree.heading(c, text=label)
         self._sort_col = None
@@ -1055,14 +1287,19 @@ class NFLSchedulerApp:
     # ─────────────────────────────────────────
 
     def _save_and_refresh(self, msg=""):
-        """Save to file and refresh view and filter options."""
         save_games(self.save_file, self.games)
         self.refresh_schedule_view()
         self.refresh_filter_options()
         self.update_status(msg + f" | Saved to '{self.save_file}'")
 
+    def _update_recent_and_save_settings(self):
+        record_recent_file(self.settings, self.save_file)
+        save_settings(self.settings)
+        self.file_label.config(text=f"File: {self.save_file}")
+
     def save_now(self):
         save_games(self.save_file, self.games)
+        self._update_recent_and_save_settings()
         self.update_status(f"Saved {len(self.games)} game(s) to '{self.save_file}'")
 
     def save_as(self):
@@ -1073,8 +1310,8 @@ class NFLSchedulerApp:
         )
         if path:
             self.save_file = path
-            self.file_label.config(text=f"File: {self.save_file}")
             save_games(self.save_file, self.games)
+            self._update_recent_and_save_settings()
             self.update_status(f"Saved to '{self.save_file}'")
 
     def open_schedule(self):
@@ -1083,11 +1320,11 @@ class NFLSchedulerApp:
             title="Open Schedule File"
         )
         if path:
-            self.save_file      = path
-            self.games          = load_games(self.save_file)
-            self._sorted_indices = None   # Reset sort on new file load
+            self.save_file       = path
+            self.games           = load_games(self.save_file)
+            self._sorted_indices = None
             self._reset_column_headings()
-            self.file_label.config(text=f"File: {self.save_file}")
+            self._update_recent_and_save_settings()
             self.refresh_schedule_view()
             self.refresh_filter_options()
             self.update_status(
@@ -1097,15 +1334,23 @@ class NFLSchedulerApp:
     def new_schedule(self):
         if messagebox.askyesno("New Schedule",
                                "Start a new schedule? Unsaved changes will be lost."):
+            path = filedialog.asksaveasfilename(
+                defaultextension=".json",
+                filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")],
+                title="Save New Schedule As"
+            )
+            if not path:
+                return
             self.games           = []
-            self._sorted_indices = None   # Reset sort
+            self.save_file       = path
+            self._sorted_indices = None
             self._reset_column_headings()
-            self.save_file = DEFAULT_SAVE_FILE
-            self.file_label.config(text=f"File: {self.save_file}")
+            save_games(self.save_file, self.games)
+            self._update_recent_and_save_settings()
             self.refresh_schedule_view()
             self.refresh_filter_options()
             self.clear_form()
-            self.update_status("New schedule started.")
+            self.update_status(f"New schedule started: '{self.save_file}'")
 
     def export_csv(self):
         if not self.games:
@@ -1124,7 +1369,6 @@ class NFLSchedulerApp:
                     fieldnames=["year","week","date","away_team","home_team","time","location"]
                 )
                 writer.writeheader()
-                # Export in current display order (sorted or insertion)
                 ordered = (
                     [self.games[i] for i in self._sorted_indices]
                     if self._sorted_indices is not None
@@ -1133,10 +1377,6 @@ class NFLSchedulerApp:
                 for g in ordered:
                     writer.writerow(g)
             self.update_status(f"Exported {len(self.games)} game(s) to '{path}'")
-
-    # ─────────────────────────────────────────
-    # Utility
-    # ─────────────────────────────────────────
 
     def update_status(self, msg):
         self.status_var.set(f"  {msg}")
@@ -1147,7 +1387,9 @@ class NFLSchedulerApp:
             "🏈 NFL Schedule Builder\n\n"
             "Build your NFL season schedule with ease.\n\n"
             "Features:\n"
+            "  • Startup dialog with recent files\n"
             "  • Searchable team dropdowns\n"
+            "  • Dropdown closes after selection\n"
             "  • Filter by team AND week\n"
             "  • Click outside to close dropdowns\n"
             "  • Numeric week & year sorting\n"
@@ -1155,7 +1397,6 @@ class NFLSchedulerApp:
             "  • Default view: insertion order\n"
             "  • Filters work independently of sort\n"
             "  • Live search across all fields\n"
-            "  • Active filter indicator\n"
             "  • Add, edit, delete games\n"
             "  • Auto-save to JSON\n"
             "  • Export to CSV"
@@ -1168,5 +1409,30 @@ class NFLSchedulerApp:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = NFLSchedulerApp(root)
-    root.mainloop()
+    root.withdraw()
+
+    settings = load_settings()
+
+    dialog = StartupDialog(root, settings)
+    root.wait_window(dialog)
+
+    chosen = dialog.chosen_file
+
+    if chosen == "__NEW__":
+        new_path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")],
+            title="Save New Schedule As"
+        )
+        if not new_path:
+            root.quit()
+        else:
+            save_games(new_path, [])
+            initial_file = new_path
+    else:
+        initial_file = chosen
+
+    if initial_file:
+        root.deiconify()
+        app = NFLSchedulerApp(root, initial_file, settings)
+        root.mainloop()
