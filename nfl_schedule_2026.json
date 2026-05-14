@@ -1,7 +1,7 @@
 {
     "meta": {
         "app": "NFL Schedule Builder",
-        "last_saved": "2026-05-14 16:05:01"
+        "last_saved": "2026-05-14 16:26:23"
     },
     "games": [
         {
@@ -605,6 +605,15 @@
             "home_team": "Tampa Bay Buccaneers",
             "time": "8:15 PM ET",
             "location": "TB",
+            "year": 2026
+        },
+        {
+            "week": 3,
+            "date": "09/28/2026",
+            "away_team": "Philadelphia Eagles",
+            "home_team": "Chicago Bears",
+            "time": "8:15 PM ET",
+            "location": "CHI",
             "year": 2026
         }
     ]
