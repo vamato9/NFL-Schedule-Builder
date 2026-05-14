@@ -688,11 +688,12 @@ class NFLSchedulerApp:
 
         self.root.title("🏈 NFL Schedule Builder")
         # Try to start maximized
-        try:
-            self.root.state('zoomed') # Works on Windows
-        except tk.TclError:
-            # Fallback for Mac/Linux or if 'zoomed' fails
-            self.root.geometry("1000x700")
+        #try:
+        #    self.root.state('zoomed') # Works on Windows
+        #except tk.TclError:
+        #    # Fallback for Mac/Linux or if 'zoomed' fails
+        #    self.root.geometry("1000x700")
+        self.root.geometry("1280x780")
         self.root.configure(bg=BG_COLOR)
         self.root.resizable(True, True)
 

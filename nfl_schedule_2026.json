@@ -1,7 +1,7 @@
 {
     "meta": {
         "app": "NFL Schedule Builder",
-        "last_saved": "2026-05-14 16:26:23"
+        "last_saved": "2026-05-14 18:31:06"
     },
     "games": [
         {
@@ -338,12 +338,12 @@
             "year": 2026
         },
         {
-            "week": 8,
-            "date": "11/01/2026",
-            "away_team": "Las Vegas Raiders",
-            "home_team": "New York Jets",
+            "week": 9,
+            "date": "11/10/2026",
+            "away_team": "New York Jets",
+            "home_team": "Kansas City Chiefs",
             "time": "TBD",
-            "location": "NYJ",
+            "location": "KC",
             "year": 2026
         },
         {
@@ -614,6 +614,51 @@
             "home_team": "Chicago Bears",
             "time": "8:15 PM ET",
             "location": "CHI",
+            "year": 2026
+        },
+        {
+            "week": 6,
+            "date": "10/18/2026",
+            "away_team": "New York Jets",
+            "home_team": "New England Patriots",
+            "time": "TBD",
+            "location": "NE",
+            "year": 2026
+        },
+        {
+            "week": 8,
+            "date": "11/01/2026",
+            "away_team": "Las Vegas Raiders",
+            "home_team": "New York Jets",
+            "time": "TBD",
+            "location": "NYJ",
+            "year": 2026
+        },
+        {
+            "week": 11,
+            "date": "11/22/2026",
+            "away_team": "New York Jets",
+            "home_team": "Kansas City Chiefs",
+            "time": "TBD",
+            "location": "LAC",
+            "year": 2026
+        },
+        {
+            "week": 12,
+            "date": "11/29/2026",
+            "away_team": "New York Jets",
+            "home_team": "Miami Dolphins",
+            "time": "TBD",
+            "location": "MIA",
+            "year": 2026
+        },
+        {
+            "week": 15,
+            "date": "12/20/2026",
+            "away_team": "New York Jets",
+            "home_team": "Arizona Cardinals",
+            "time": "TBD",
+            "location": "ARI",
             "year": 2026
         }
     ]
